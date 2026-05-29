@@ -1,48 +1,39 @@
+import time
+
 from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 
-from llama_index.core import (
-    VectorStoreIndex,
-    StorageContext,
-    SimpleDirectoryReader,
+from api.chat import router as chat_router
+from core.config import Config
+
+app = FastAPI(title="RAG API - World Memory System")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-from llama_index.vector_stores.qdrant import QdrantVectorStore
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.core import StorageContext
-from llama_index.core import Settings
-from qdrant_client import QdrantClient
-
-import os
-
-Settings.embed_model = HuggingFaceEmbedding(
-    model_name="BAAI/bge-base-zh-v1.5"
-)
-
-app = FastAPI()
-
-QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-client = QdrantClient(url=QDRANT_URL)
-
-vector_store = QdrantVectorStore(
-    client=client,
-    collection_name="docs"
-)
-
-storage_context = StorageContext.from_defaults(
-    vector_store=vector_store
-)
-
-index = VectorStoreIndex([], storage_context=storage_context)
+app.include_router(chat_router)
 
 
-class Query(BaseModel):
-    question: str
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
-@app.post("/query")
-def query(q: Query):
-    engine = index.as_query_engine()
+@app.get("/v1/models")
+def list_models():
     return {
-        "answer": str(engine.query(q.question))
+        "object": "list",
+        "data": [
+            {
+                "id": f"{Config.LLM_PROVIDER}/{Config.OLLAMA_MODEL}",
+                "object": "model",
+                "created": int(time.time()),
+                "owned_by": "user",
+            }
+        ],
     }
