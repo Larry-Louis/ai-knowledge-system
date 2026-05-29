@@ -24,7 +24,7 @@ class OllamaClient(LLMClient):
             ],
             "stream": False,
         }
-        with httpx.Client(timeout=120) as client:
+        with httpx.Client(timeout=600) as client:
             resp = client.post(f"{self.base_url}/api/chat", json=payload)
             resp.raise_for_status()
             return resp.json()["message"]["content"]

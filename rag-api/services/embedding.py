@@ -1,22 +1,14 @@
-from sentence_transformers import SentenceTransformer
+import httpx
 from core.config import Config
 
 
 class EmbeddingService:
-    _model = None
-
-    @classmethod
-    def get_model(cls):
-        if cls._model is None:
-            cls._model = SentenceTransformer(Config.EMBEDDING_MODEL)
-        return cls._model
-
     @classmethod
     def embed(cls, text: str) -> list[float]:
-        model = cls.get_model()
-        return model.encode(text).tolist()
-
-    @classmethod
-    def embed_batch(cls, texts: list[str]) -> list[list[float]]:
-        model = cls.get_model()
-        return model.encode(texts).tolist()
+        payload = {"model": Config.OLLAMA_EMBEDDING_MODEL, "input": text}
+        with httpx.Client(timeout=600) as client:
+            resp = client.post(
+                f"{Config.OLLAMA_BASE_URL}/api/embed", json=payload
+            )
+            resp.raise_for_status()
+            return resp.json()["embeddings"][0]

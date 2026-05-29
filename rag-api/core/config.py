@@ -5,7 +5,7 @@ class Config:
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
 
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:9b")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
 
     DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
     DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
@@ -18,7 +18,7 @@ class Config:
     QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
     QDRANT_MEMORY_COLLECTION = os.getenv("QDRANT_MEMORY_COLLECTION", "memories")
 
-    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-base-zh-v1.5")
+    OLLAMA_EMBEDDING_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
     EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))
 
     SHORT_TERM_SIZE = int(os.getenv("SHORT_TERM_SIZE", "20"))

@@ -60,9 +60,9 @@ class QdrantStore:
     def search_memories(
         self, embedding: list[float], session_id: str, top_k: int = 8
     ) -> list[dict]:
-        results = self.client.search(
+        results = self.client.query_points(
             collection_name=self.collection,
-            query_vector=embedding,
+            query=embedding,
             query_filter=Filter(
                 must=[
                     FieldCondition(
@@ -75,12 +75,12 @@ class QdrantStore:
         )
         return [
             {
-                "content": r.payload["content"],
-                "role": r.payload.get("role", "user"),
-                "score": r.score,
-                "timestamp": r.payload.get("timestamp", 0),
+                "content": p.payload["content"],
+                "role": p.payload.get("role", "user"),
+                "score": p.score,
+                "timestamp": p.payload.get("timestamp", 0),
             }
-            for r in results
+            for p in results.points
         ]
 
     def get_summary(self, session_id: str) -> str | None:
