@@ -2,6 +2,7 @@ import time
 import uuid
 
 from core.config import Config
+from core.state import get_active_role
 from core.llm import LLMFactory
 from core.prompt import build_prompt
 from services.embedding import EmbeddingService
@@ -44,13 +45,19 @@ class MemoryManager:
         last_user_msg = user_msgs[-1]["content"]
 
         embedding = EmbeddingService.embed(last_user_msg)
+        active_role = get_active_role()
+
+        # Search layers: "core" always + active role layer
+        search_layers = ["core"]
+        if active_role != "core":
+            search_layers.append(active_role)
 
         related = self.qdrant.search_memories(
             embedding, session_id, Config.MEMORY_TOP_K
         )
-        global_memories = self.qdrant.search_global_memories(embedding, top_k=6)
+        global_memories = self.qdrant.search_global_memories(embedding, top_k=6, layers=search_layers)
         recent_global = self.qdrant.get_recent_global_memories(
-            exclude_session=session_id, limit=6
+            exclude_session=session_id, limit=6, layers=search_layers
         )
         all_memories = _merge_memories(related, global_memories + recent_global)
         summary = self.qdrant.get_summary()
@@ -79,14 +86,14 @@ class MemoryManager:
         }
 
         self.sessions.add_message(session_id, "user", last_user_msg)
-        self.qdrant.upsert_memory(session_id, "user", last_user_msg, embedding)
+        self.qdrant.upsert_memory(session_id, "user", last_user_msg, embedding, layer=active_role)
 
         llm = LLMFactory.get(model=getattr(self, '_model_override', None))
         response = llm.chat(final_prompt)
 
         self.sessions.add_message(session_id, "assistant", response)
         resp_embedding = EmbeddingService.embed(response)
-        self.qdrant.upsert_memory(session_id, "assistant", response, resp_embedding)
+        self.qdrant.upsert_memory(session_id, "assistant", response, resp_embedding, layer=active_role)
 
         msg_count = self.sessions.get_message_count(session_id)
         if msg_count > 0 and msg_count % (Config.SUMMARY_INTERVAL * 2) == 0:

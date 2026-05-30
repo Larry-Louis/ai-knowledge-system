@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 
 from core.memory import MemoryManager
+from core.state import set_active_role
 from models.schema import ChatCompletionRequest, ChatCompletionResponse
 
 router = APIRouter()
@@ -23,8 +24,16 @@ def get_last_prompt():
 @router.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 def chat_completions(request: ChatCompletionRequest):
     try:
-        # "default" means the client didn't specify a model — use config default
-        model = request.model if request.model != "default" else None
+        # Parse model name: "deepseek-v4-flash:game" → model=deepseek-v4-flash, role=game
+        model_str = request.model if request.model != "default" else ""
+        model = model_str
+        if ":" in model_str:
+            parts = model_str.split(":", 1)
+            model = parts[0] or None
+            role = parts[1].strip()
+            if role:
+                set_active_role(role)
+
         result = memory_manager.process_request(
             request_messages=request.messages,
             session_id=request.session_id,

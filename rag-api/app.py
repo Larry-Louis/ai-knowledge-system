@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from api.chat import router as chat_router
 from core.config import Config
-from core.state import set_active_doc_ids, get_active_doc_ids
+from core.state import set_active_doc_ids, get_active_doc_ids, get_active_role, set_active_role
 from services.embedding import EmbeddingService
 
 
@@ -28,6 +28,10 @@ class ActiveDocsRequest(BaseModel):
     doc_ids: List[str]
 
 
+class RoleRequest(BaseModel):
+    role: str
+
+
 @app.get("/documents/active")
 def get_active_docs():
     return {"active_doc_ids": list(get_active_doc_ids())}
@@ -37,6 +41,17 @@ def get_active_docs():
 def set_active_docs(req: ActiveDocsRequest):
     set_active_doc_ids(req.doc_ids)
     return {"active_doc_ids": list(get_active_doc_ids()), "count": len(get_active_doc_ids())}
+
+
+@app.get("/role")
+def get_role():
+    return {"role": get_active_role()}
+
+
+@app.post("/role")
+def set_role(req: RoleRequest):
+    set_active_role(req.role)
+    return {"role": get_active_role(), "message": f"已切换到 {req.role} 角色"}
 
 
 @app.get("/health")

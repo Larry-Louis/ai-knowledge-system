@@ -81,6 +81,7 @@ header .upload-btn:hover { background: #3b5de7; }
     <option value="">— 选择文档 —</option>
   </select>
   <button id="mountBtn" style="display:none;background:#4a6cf7;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:13px;cursor:pointer" onclick="toggleMount(selectedDocId)">⛓️ 挂载</button>
+  <button id="deleteBtn" style="display:none;background:#dc3545;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:13px;cursor:pointer" onclick="deleteDoc()">🗑️ 删除</button>
   <button class="upload-btn" onclick="showUpload()">+ 上传</button>
   <span class="doc-info" id="docInfo"></span>
 </header>
@@ -136,6 +137,29 @@ async function loadMounted() {
   } catch(e) {}
 }
 
+// Delete document
+async function deleteDoc() {
+  if (!selectedDocId) return;
+  if (!confirm(`确定要删除「${selectedDocTitle}」吗？\n此操作不可撤销。`)) return;
+  try {
+    const r = await fetch(`/documents/${selectedDocId}`, { method: 'DELETE' });
+    if (r.ok) {
+      mountedDocs.delete(selectedDocId);
+      await fetch('/rag-api/documents/active', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({doc_ids: [...mountedDocs]})
+      });
+      selectedDocId = null;
+      document.getElementById('docSelect').value = '';
+      selectDoc();
+      loadDocs();
+    } else {
+      const data = await r.json();
+      alert('删除失败: ' + (data.detail || '未知错误'));
+    }
+  } catch(e) { alert('删除失败: ' + e.message); }
+}
+
 // Mount/unmount a document
 async function toggleMount(docId) {
   if (mountedDocs.has(docId)) mountedDocs.delete(docId);
@@ -178,6 +202,7 @@ function selectDoc() {
     : '';
   document.getElementById('msgInput').disabled = !selectedDocId;
   document.getElementById('sendBtn').disabled = !selectedDocId;
+  document.getElementById('deleteBtn').style.display = selectedDocId ? 'inline-block' : 'none';
   updateMountBtn();
   
   if (selectedDocId) {
@@ -202,19 +227,6 @@ function updateMountBtn() {
   const mounted = mountedDocs.has(selectedDocId);
   btn.textContent = mounted ? '🔗 已挂载' : '⛓️ 挂载';
   btn.style.background = mounted ? '#28a745' : '#4a6cf7';
-}
-
-async function toggleMount(docId) {
-  if (mountedDocs.has(docId)) mountedDocs.delete(docId);
-  else mountedDocs.add(docId);
-  try {
-    await fetch('/rag-api/documents/active', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({doc_ids: [...mountedDocs]})
-    });
-  } catch(e) { console.error('mount error:', e); }
-  selectDoc();
 }
 
 // Show/hide upload

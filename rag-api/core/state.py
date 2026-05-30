@@ -2,6 +2,7 @@
 from typing import Set
 
 _active_doc_ids: Set[str] = set()
+_active_role: str = "general"
 
 
 def get_active_doc_ids() -> Set[str]:
@@ -15,3 +16,12 @@ def set_active_doc_ids(ids: list[str]):
 
 def clear_active_doc_ids():
     _active_doc_ids.clear()
+
+
+def get_active_role() -> str:
+    return _active_role
+
+
+def set_active_role(role: str):
+    global _active_role
+    _active_role = role

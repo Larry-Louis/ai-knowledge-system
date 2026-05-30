@@ -1,3 +1,4 @@
+import os
 import uuid
 import time
 
@@ -5,12 +6,14 @@ from fastapi import FastAPI, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from models.schema import ChatRequest, ChatResponse
 from services.parser import split_by_chapter, extract_pdf_text, validate_text
 from services.indexer import DocumentIndexer
 from services.embedding import embed
 from services.llm import chat as llm_chat
+import httpx
 
 RAG_API_BASE = os.getenv("RAG_API_URL", "http://rag-api:8000")
 
@@ -149,17 +152,20 @@ def chat_with_document(doc_id: str, req: ChatRequest):
     # Search across the entire document for relevant content
     all_chunks = indexer.search_all(doc_id, query_embedding, top_k=8)
 
-    # Build context from retrieved chunks
+    # Build context from retrieved chunks (hard limit: max 6000 chars total)
     context = ""
     sources = []
     for c in all_chunks:
+        if len(context) >= 6000:
+            break
         label = f"[第{c['chapter']}章 {c['title']}]"
-        context += f"{label}\n{c['content'][:1200]}\n\n"
+        chunk_text = (c.get("content") or "")[:1200]
+        context += f"{label}\n{chunk_text}\n\n"
         sources.append(f"第{c['chapter']}章")
 
     user_prompt = f"""以下是文档中与你问题相关的段落：
 
-{context}
+{context[:30000]}
 
 用户问题: {req.message}"""
 

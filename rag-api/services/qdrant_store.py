@@ -40,6 +40,7 @@ class QdrantStore:
         content: str,
         embedding: list[float],
         point_type: str = "memory",
+        layer: str = "general",
     ) -> str:
         point_id = str(uuid.uuid4())
         self.client.upsert(
@@ -51,6 +52,7 @@ class QdrantStore:
                     payload={
                         "session_id": session_id,
                         "role": role,
+                        "layer": layer,
                         "content": content,
                         "timestamp": time.time(),
                         "type": point_type,
@@ -88,15 +90,18 @@ class QdrantStore:
         ]
 
     def search_global_memories(
-        self, embedding: list[float], top_k: int = 6
+        self, embedding: list[float], top_k: int = 6, layers: list[str] | None = None
     ) -> list[dict]:
-        """Search across all sessions for globally relevant memories."""
+        """Search across all sessions for globally relevant memories, filtered by layers."""
+        conditions = [FieldCondition(key="type", match=MatchValue(value="memory"))]
+        if layers:
+            from qdrant_client.models import MatchAny
+            conditions.append(FieldCondition(key="layer", match=MatchAny(any=layers)))
+
         results = self.client.query_points(
             collection_name=self.collection,
             query=embedding,
-            query_filter=Filter(
-                must=[FieldCondition(key="type", match=MatchValue(value="memory"))]
-            ),
+            query_filter=Filter(must=conditions),
             limit=top_k,
         )
         return [
@@ -110,14 +115,16 @@ class QdrantStore:
         ]
 
     def get_recent_global_memories(
-        self, exclude_session: str = "", limit: int = 6
+        self, exclude_session: str = "", limit: int = 6, layers: list[str] | None = None
     ) -> list[dict]:
         """Get the most recent memories across all sessions (by timestamp)."""
+        conditions = [FieldCondition(key="type", match=MatchValue(value="memory"))]
+        if layers:
+            from qdrant_client.models import MatchAny
+            conditions.append(FieldCondition(key="layer", match=MatchAny(any=layers)))
         results = self.client.scroll(
             collection_name=self.collection,
-            scroll_filter=Filter(
-                must=[FieldCondition(key="type", match=MatchValue(value="memory"))]
-            ),
+            scroll_filter=Filter(must=conditions),
             limit=limit * 3,
             with_payload=True,
             order_by={"key": "timestamp", "direction": "desc"},
