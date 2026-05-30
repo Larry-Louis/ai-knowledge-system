@@ -24,17 +24,18 @@ class OllamaClient(LLMClient):
             ],
             "stream": False,
         }
-        with httpx.Client(timeout=600) as client:
+        with httpx.Client(timeout=900) as client:
             resp = client.post(f"{self.base_url}/api/chat", json=payload)
             resp.raise_for_status()
             return resp.json()["message"]["content"]
 
 
 class DeepSeekClient(LLMClient):
-    def __init__(self):
+    def __init__(self, model: str | None = None):
         self.api_key = Config.DEEPSEEK_API_KEY
         self.base_url = Config.DEEPSEEK_BASE_URL
-        self.model = Config.DEEPSEEK_MODEL
+        self.model = model or Config.DEEPSEEK_MODEL
+        self.last_reasoning = None
 
     def chat(self, messages: list[dict]) -> str:
         payload = {"model": self.model, "messages": messages}
@@ -49,7 +50,9 @@ class DeepSeekClient(LLMClient):
                 headers=headers,
             )
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
+            msg = resp.json()["choices"][0]["message"]
+            self.last_reasoning = msg.get("reasoning_content")
+            return msg["content"]
 
 
 class OpenAIClient(LLMClient):
@@ -76,12 +79,12 @@ class OpenAIClient(LLMClient):
 
 class LLMFactory:
     @staticmethod
-    def get(provider: str | None = None) -> LLMClient:
+    def get(provider: str | None = None, model: str | None = None) -> LLMClient:
         provider = provider or Config.LLM_PROVIDER
         if provider == "ollama":
             return OllamaClient()
         elif provider == "deepseek":
-            return DeepSeekClient()
+            return DeepSeekClient(model=model)
         elif provider == "openai":
             return OpenAIClient()
         else:

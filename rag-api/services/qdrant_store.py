@@ -13,6 +13,9 @@ from qdrant_client.models import (
 from core.config import Config
 
 
+GLOBAL_SESSION = "__global__"
+
+
 class QdrantStore:
     def __init__(self):
         self.client = QdrantClient(url=Config.QDRANT_URL)
@@ -60,6 +63,7 @@ class QdrantStore:
     def search_memories(
         self, embedding: list[float], session_id: str, top_k: int = 8
     ) -> list[dict]:
+        # Session-specific memories
         results = self.client.query_points(
             collection_name=self.collection,
             query=embedding,
@@ -83,38 +87,81 @@ class QdrantStore:
             for p in results.points
         ]
 
-    def get_summary(self, session_id: str) -> str | None:
+    def search_global_memories(
+        self, embedding: list[float], top_k: int = 6
+    ) -> list[dict]:
+        """Search across all sessions for globally relevant memories."""
+        results = self.client.query_points(
+            collection_name=self.collection,
+            query=embedding,
+            query_filter=Filter(
+                must=[FieldCondition(key="type", match=MatchValue(value="memory"))]
+            ),
+            limit=top_k,
+        )
+        return [
+            {
+                "content": p.payload["content"],
+                "role": p.payload.get("role", "user"),
+                "session_id": p.payload.get("session_id", ""),
+                "score": p.score,
+            }
+            for p in results.points
+        ]
+
+    def get_recent_global_memories(
+        self, exclude_session: str = "", limit: int = 6
+    ) -> list[dict]:
+        """Get the most recent memories across all sessions (by timestamp)."""
         results = self.client.scroll(
             collection_name=self.collection,
             scroll_filter=Filter(
-                must=[
-                    FieldCondition(
-                        key="session_id", match=MatchValue(value=session_id)
-                    ),
-                    FieldCondition(key="type", match=MatchValue(value="summary")),
-                ]
+                must=[FieldCondition(key="type", match=MatchValue(value="memory"))]
+            ),
+            limit=limit * 3,
+            with_payload=True,
+            order_by={"key": "timestamp", "direction": "desc"},
+        )[0]
+        seen = set()
+        result = []
+        for p in results:
+            sid = p.payload.get("session_id", "")
+            if sid == exclude_session:
+                continue
+            content = p.payload.get("content", "")
+            key = content[:100]
+            if key not in seen:
+                seen.add(key)
+                result.append({
+                    "content": content,
+                    "role": p.payload.get("role", "user"),
+                    "session_id": sid,
+                    "timestamp": p.payload.get("timestamp", 0),
+                })
+            if len(result) >= limit:
+                break
+        return result
+
+    def get_summary(self) -> str | None:
+        results = self.client.scroll(
+            collection_name=self.collection,
+            scroll_filter=Filter(
+                must=[FieldCondition(key="type", match=MatchValue(value="summary"))]
             ),
             limit=1,
             with_payload=True,
         )[0]
         return results[0].payload.get("content") if results else None
 
-    def save_summary(self, session_id: str, summary: str, embedding: list[float]):
+    def save_summary(self, summary: str, embedding: list[float]):
         self.client.delete(
             collection_name=self.collection,
             points_selector=FilterSelector(
                 filter=Filter(
-                    must=[
-                        FieldCondition(
-                            key="session_id", match=MatchValue(value=session_id)
-                        ),
-                        FieldCondition(
-                            key="type", match=MatchValue(value="summary")
-                        ),
-                    ]
+                    must=[FieldCondition(key="type", match=MatchValue(value="summary"))]
                 )
             ),
         )
         self.upsert_memory(
-            session_id, "system", summary, embedding, point_type="summary"
+            GLOBAL_SESSION, "system", summary, embedding, point_type="summary"
         )

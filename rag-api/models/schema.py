@@ -20,3 +20,4 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: List[dict]
     usage: dict = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    output: Optional[List[dict]] = None

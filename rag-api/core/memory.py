@@ -1,3 +1,4 @@
+import time
 import uuid
 
 from core.config import Config
@@ -12,12 +13,26 @@ def _to_dicts(messages: list) -> list[dict]:
     return [m.model_dump() if hasattr(m, "model_dump") else m for m in messages]
 
 
+def _merge_memories(session: list[dict], global_: list[dict]) -> list[dict]:
+    seen = set()
+    result = []
+    for m in session + global_:
+        key = m["content"][:100]
+        if key not in seen:
+            seen.add(key)
+            result.append(m)
+    return result[:12]
+
+
 class MemoryManager:
     def __init__(self):
         self.qdrant = QdrantStore()
         self.sessions = SessionStore()
+        self._model_override = None
+        self.last_prompt = None
 
-    def process_request(self, request_messages: list, session_id: str | None = None) -> dict:
+    def process_request(self, request_messages: list, session_id: str | None = None, model: str | None = None) -> dict:
+        self._model_override = model
         if not session_id:
             session_id = str(uuid.uuid4())
 
@@ -33,18 +48,31 @@ class MemoryManager:
         related = self.qdrant.search_memories(
             embedding, session_id, Config.MEMORY_TOP_K
         )
-        summary = self.qdrant.get_summary(session_id)
+        global_memories = self.qdrant.search_global_memories(embedding, top_k=6)
+        recent_global = self.qdrant.get_recent_global_memories(
+            exclude_session=session_id, limit=6
+        )
+        all_memories = _merge_memories(related, global_memories + recent_global)
+        summary = self.qdrant.get_summary()
 
         final_prompt = build_prompt(
             request_messages=messages,
             world_summary=summary,
-            related_memories=related,
+            related_memories=all_memories,
         )
+        self.last_prompt = {
+            "session_id": session_id,
+            "model": model or Config.DEEPSEEK_MODEL,
+            "timestamp": int(time.time()),
+            "messages": final_prompt,
+            "related_memories": all_memories,
+            "world_summary": summary,
+        }
 
         self.sessions.add_message(session_id, "user", last_user_msg)
         self.qdrant.upsert_memory(session_id, "user", last_user_msg, embedding)
 
-        llm = LLMFactory.get()
+        llm = LLMFactory.get(model=getattr(self, '_model_override', None))
         response = llm.chat(final_prompt)
 
         self.sessions.add_message(session_id, "assistant", response)
@@ -55,7 +83,8 @@ class MemoryManager:
         if msg_count > 0 and msg_count % (Config.SUMMARY_INTERVAL * 2) == 0:
             self._generate_summary(session_id)
 
-        return {"response": response, "session_id": session_id}
+        reasoning = getattr(llm, 'last_reasoning', None)
+        return {"response": response, "session_id": session_id, "reasoning": reasoning}
 
     def _generate_summary(self, session_id: str):
         recent = self.sessions.get_recent(session_id, Config.SHORT_TERM_SIZE)
@@ -79,9 +108,9 @@ class MemoryManager:
         ]
 
         try:
-            llm = LLMFactory.get()
+            llm = LLMFactory.get(model=self._model_override)
             summary = llm.chat(prompt)
             embedding = EmbeddingService.embed(summary)
-            self.qdrant.save_summary(session_id, summary, embedding)
+            self.qdrant.save_summary(summary, embedding)
         except Exception as e:
             print(f"[WARN] Summary generation failed: {e}")
