@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 
 from core.config import Config
 from core.memory import MemoryManager
-from core.state import set_active_role
+from core.state import set_active_role, set_core_write_mode, get_core_write_mode
 from models.schema import ChatCompletionRequest, ChatCompletionResponse
 
 router = APIRouter()
@@ -32,11 +32,19 @@ def chat_completions(request: ChatCompletionRequest):
             parts = model_str.split(":", 1)
             model = parts[0] or None
             role = parts[1].strip()
-            if role:
+            if role == Config.CORE_LAYER:
+                set_core_write_mode(True)
+            elif role:
                 set_active_role(role)
-        elif model_str in Config.MEMORY_LAYERS or model_str == Config.CORE_LAYER:
-            # Bare layer name like "game" → switch role, model = None (use default)
+                set_core_write_mode(False)
+        elif model_str == Config.CORE_LAYER:
+            # "core" → enable core write mode, don't switch role
+            set_core_write_mode(True)
+            model = None
+        elif model_str in Config.MEMORY_LAYERS:
+            # Bare layer name like "story" → switch role
             set_active_role(model_str)
+            set_core_write_mode(False)
             model = None
 
         result = memory_manager.process_request(

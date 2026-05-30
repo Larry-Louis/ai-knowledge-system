@@ -32,6 +32,7 @@ class Config:
         "docreader": "文档分析与阅读",
     }
     CORE_LAYER = "core"
+    CORE_TRIGGERS = ["记住：", "要记得：", "写入核心："]
 
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", "8000"))

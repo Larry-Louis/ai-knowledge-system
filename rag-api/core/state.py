@@ -3,6 +3,7 @@ from typing import Set
 
 _active_doc_ids: Set[str] = set()
 _active_role: str = "general"
+_core_write_mode: bool = False
 
 
 def get_active_doc_ids() -> Set[str]:
@@ -20,6 +21,15 @@ def clear_active_doc_ids():
 
 def get_active_role() -> str:
     return _active_role
+
+
+def get_core_write_mode() -> bool:
+    return _core_write_mode
+
+
+def set_core_write_mode(enabled: bool):
+    global _core_write_mode
+    _core_write_mode = enabled
 
 
 def set_active_role(role: str):

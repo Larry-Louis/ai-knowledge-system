@@ -63,7 +63,20 @@ class MemoryManager:
         summary = self.qdrant.get_summary()
 
         # Search ONLY actively mounted documents for relevant context
-        from core.state import get_active_doc_ids
+        # Core write mode: check if user message contains a save trigger
+        from core.state import get_active_doc_ids, get_core_write_mode
+        if get_core_write_mode():
+            for trigger in Config.CORE_TRIGGERS:
+                if trigger in last_user_msg:
+                    core_text = last_user_msg.split(trigger, 1)[1].strip()
+                    if core_text:
+                        core_emb = EmbeddingService.embed(core_text)
+                        self.qdrant.upsert_memory(
+                            session_id, "system", core_text, core_emb,
+                            layer=Config.CORE_LAYER
+                        )
+                    break
+
         active_docs = get_active_doc_ids()
         doc_chunks = []
         if active_docs:
