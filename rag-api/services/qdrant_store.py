@@ -142,6 +142,29 @@ class QdrantStore:
                 break
         return result
 
+    DOCUMENTS_COLLECTION = "documents"
+
+    def search_documents(self, embedding: list[float], top_k: int = 4) -> list[dict]:
+        """Search uploaded documents for relevant content."""
+        results = self.client.query_points(
+            collection_name=self.DOCUMENTS_COLLECTION,
+            query=embedding,
+            query_filter=Filter(
+                must=[FieldCondition(key="type", match=MatchValue(value="chapter"))]
+            ),
+            limit=top_k,
+        )
+        return [
+            {
+                "content": p.payload["content"],
+                "chapter": p.payload.get("chapter", ""),
+                "title": p.payload.get("title", ""),
+                "doc_title": p.payload.get("doc_title", ""),
+                "score": p.score,
+            }
+            for p in results.points
+        ]
+
     def get_summary(self) -> str | None:
         results = self.client.scroll(
             collection_name=self.collection,

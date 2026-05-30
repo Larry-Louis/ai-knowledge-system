@@ -7,6 +7,7 @@ def build_prompt(
     request_messages: list[dict],
     world_summary: str | None = None,
     related_memories: list[dict] | None = None,
+    document_chunks: list[dict] | None = None,
 ) -> list[dict]:
     system_msg = None
     other_messages = []
@@ -19,14 +20,14 @@ def build_prompt(
     system_content = system_msg or DEFAULT_SYSTEM_PROMPT
 
     final_messages = [
-        {"role": "system", "content": _build_system_content(system_content, world_summary, related_memories)}
+        {"role": "system", "content": _build_system_content(system_content, world_summary, related_memories, document_chunks)}
     ]
 
     final_messages.extend(other_messages)
     return final_messages
 
 
-def _build_system_content(base: str, world_summary: str | None, related_memories: list[dict] | None) -> str:
+def _build_system_content(base: str, world_summary: str | None, related_memories: list[dict] | None, document_chunks: list[dict] | None = None) -> str:
     parts = [base]
 
     if world_summary:
@@ -38,5 +39,11 @@ def _build_system_content(base: str, world_summary: str | None, related_memories
             label = "用户" if m["role"] == "user" else "AI助手"
             memory_lines.append(f"[{label}]: {m['content']}")
         parts.append("\n\n[相关历史记忆]\n" + "\n".join(memory_lines))
+
+    if document_chunks:
+        doc_lines = []
+        for d in document_chunks:
+            doc_lines.append(f"[来自《{d['doc_title']}》第{d['chapter']}章 {d['title']}]: {d['content'][:800]}")
+        parts.append("\n\n[文档参考]\n" + "\n".join(doc_lines))
 
     return "\n".join(parts)

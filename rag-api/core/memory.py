@@ -55,10 +55,14 @@ class MemoryManager:
         all_memories = _merge_memories(related, global_memories + recent_global)
         summary = self.qdrant.get_summary()
 
+        # Search uploaded documents for relevant context
+        doc_chunks = self.qdrant.search_documents(embedding, top_k=4)
+
         final_prompt = build_prompt(
             request_messages=messages,
             world_summary=summary,
             related_memories=all_memories,
+            document_chunks=doc_chunks,
         )
         self.last_prompt = {
             "session_id": session_id,
@@ -67,6 +71,7 @@ class MemoryManager:
             "messages": final_prompt,
             "related_memories": all_memories,
             "world_summary": summary,
+            "document_chunks": doc_chunks,
         }
 
         self.sessions.add_message(session_id, "user", last_user_msg)
