@@ -6,7 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.chat import router as chat_router
 from core.config import Config
 from services.embedding import EmbeddingService
-from core.llm import LLMFactory
 
 app = FastAPI(title="RAG API - World Memory System")
 
@@ -28,7 +27,7 @@ def health():
 
 @app.post("/warmup")
 def warmup():
-    """Preload both embedding and LLM models into Ollama memory."""
+    """Preload embedding model (nomic-embed-text) into Ollama memory."""
     start = time.time()
     results = {}
 
@@ -38,15 +37,19 @@ def warmup():
     except Exception as e:
         results["embedding"] = str(e)
 
-    try:
-        llm = LLMFactory.get()
-        llm.chat([{"role": "user", "content": "warmup"}])
-        results["llm"] = "ok"
-    except Exception as e:
-        results["llm"] = str(e)
-
     elapsed = time.time() - start
     return {"warmup": results, "elapsed_seconds": round(elapsed, 1)}
+
+
+@app.post("/embed")
+def embed_text(text: str):
+    """Embed text via Ollama (proxy for other services)."""
+    try:
+        vector = EmbeddingService.embed(text)
+        return {"embedding": vector}
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(500, str(e))
 
 
 @app.get("/v1/models")

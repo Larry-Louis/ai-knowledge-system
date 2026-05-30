@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Doc Reader - 文档阅读器</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; min-height: 100vh; }
+header { background: #1a1a2e; color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+header h1 { font-size: 20px; font-weight: 600; }
+header span { color: #888; font-size: 13px; }
+.container { max-width: 1200px; margin: 0 auto; padding: 20px; display: grid; grid-template-columns: 360px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 768px) { .container { grid-template-columns: 1fr; } }
+.card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); padding: 20px; }
+.card h2 { font-size: 15px; color: #1a1a2e; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid #eee; }
+
+/* Upload */
+.upload-area { border: 2px dashed #ddd; border-radius: 8px; padding: 24px; text-align: center; cursor: pointer; transition: all .2s; }
+.upload-area:hover { border-color: #4a6cf7; background: #f8f9ff; }
+.upload-area input { display: none; }
+.upload-area .icon { font-size: 32px; margin-bottom: 8px; }
+.upload-area .text { font-size: 13px; color: #888; }
+.upload-area .filename { font-size: 12px; color: #4a6cf7; margin-top: 8px; display: none; }
+.upload-btn { margin-top: 12px; width: 100%; padding: 10px; background: #4a6cf7; color: #fff; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; }
+.upload-btn:hover { background: #3b5de7; }
+.upload-btn:disabled { background: #ccc; cursor: not-allowed; }
+.upload-status { font-size: 12px; margin-top: 8px; color: #888; }
+
+/* Document List */
+.doc-list { margin-top: 8px; }
+.doc-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: 6px; cursor: pointer; transition: background .15s; }
+.doc-item:hover { background: #f0f2ff; }
+.doc-item.active { background: #e8ecff; }
+.doc-item .name { font-size: 14px; font-weight: 500; }
+.doc-item .meta { font-size: 12px; color: #888; margin-top: 2px; }
+.doc-item .status { font-size: 11px; color: #4a6cf7; }
+.no-docs { font-size: 13px; color: #999; text-align: center; padding: 20px; }
+
+/* Query */
+.query-row { display: flex; gap: 8px; margin-bottom: 16px; }
+.query-row input { flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; outline: none; }
+.query-row input:focus { border-color: #4a6cf7; }
+.query-row button { padding: 10px 20px; background: #4a6cf7; color: #fff; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.query-row button:hover { background: #3b5de7; }
+.query-row button:disabled { background: #ccc; cursor: not-allowed; }
+.query-hint { font-size: 12px; color: #999; margin-bottom: 12px; }
+
+/* Analysis */
+.analysis { line-height: 1.8; font-size: 14px; }
+.analysis h3 { margin: 16px 0 8px; color: #1a1a2e; }
+.analysis p { margin: 8px 0; }
+.analysis ul { margin: 6px 0; padding-left: 20px; }
+.analysis li { margin: 4px 0; }
+.analysis strong { color: #1a1a2e; }
+.analysis blockquote { border-left: 3px solid #4a6cf7; padding: 8px 16px; margin: 8px 0; background: #f8f9ff; border-radius: 4px; }
+.analysis hr { border: none; border-top: 1px solid #eee; margin: 16px 0; }
+.placeholder { text-align: center; padding: 60px 20px; color: #bbb; }
+.placeholder .icon { font-size: 48px; margin-bottom: 12px; }
+.placeholder .text { font-size: 14px; }
+.loading { text-align: center; padding: 40px; color: #888; }
+.spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid #eee; border-top-color: #4a6cf7; border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error { background: #fff0f0; color: #d33; padding: 12px; border-radius: 6px; font-size: 13px; margin: 8px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📖 Doc Reader</h1>
+  <span>长文档智能阅读 &amp; 跨章节分析</span>
+</header>
+
+<div class="container">
+
+<!-- Left Sidebar -->
+<div>
+  <div class="card" style="margin-bottom:20px">
+    <h2>📤 上传文档</h2>
+    <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+      <div class="icon">📄</div>
+      <div class="text">点击选择 .txt 文件</div>
+      <div class="filename" id="fileName"></div>
+      <input type="file" id="fileInput" accept=".txt">
+    </div>
+    <button class="upload-btn" id="uploadBtn" onclick="uploadDoc()" disabled>上传并索引</button>
+    <div class="upload-status" id="uploadStatus"></div>
+  </div>
+
+  <div class="card">
+    <h2>📚 文档列表</h2>
+    <div id="docList" class="doc-list">
+      <div class="no-docs">暂无文档</div>
+    </div>
+  </div>
+</div>
+
+<!-- Main Content -->
+<div>
+  <div class="card">
+    <h2>🔍 章节查询</h2>
+    <div class="query-hint" id="queryHint">请先选择一个文档</div>
+    <div class="query-row">
+      <input type="number" id="chapterInput" min="1" placeholder="章节编号，如 1" disabled>
+      <button id="queryBtn" onclick="queryChapter()" disabled>分析</button>
+    </div>
+    <div id="analysisArea">
+      <div class="placeholder">
+        <div class="icon">🔮</div>
+        <div class="text">选择文档和章节后，点击分析<br>AI 将展示该章内容及跨章节关联</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+let selectedDoc = null;
+let docs = [];
+
+// File input change
+document.getElementById('fileInput').addEventListener('change', function() {
+  const fn = document.getElementById('fileName');
+  const btn = document.getElementById('uploadBtn');
+  if (this.files.length > 0) {
+    fn.textContent = '已选择: ' + this.files[0].name;
+    fn.style.display = 'block';
+    btn.disabled = false;
+  } else {
+    fn.style.display = 'none';
+    btn.disabled = true;
+  }
+});
+
+// Upload document
+async function uploadDoc() {
+  const input = document.getElementById('fileInput');
+  const btn = document.getElementById('uploadBtn');
+  const status = document.getElementById('uploadStatus');
+
+  if (!input.files.length) return;
+
+  const file = input.files[0];
+  const formData = new FormData();
+  formData.append('file', file);
+
+  btn.disabled = true;
+  status.textContent = '上传中...';
+
+  try {
+    const res = await fetch('/documents/upload', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (res.ok) {
+      status.innerHTML = '✅ 上传成功，共 ' + data.total_chapters + ' 章';
+      input.value = '';
+      document.getElementById('fileName').style.display = 'none';
+      loadDocs();
+    } else {
+      status.innerHTML = '❌ ' + (data.detail || '上传失败');
+    }
+  } catch (e) {
+    status.innerHTML = '❌ 网络错误: ' + e.message;
+  }
+  btn.disabled = false;
+}
+
+// Load document list
+async function loadDocs() {
+  const list = document.getElementById('docList');
+  try {
+    const res = await fetch('/documents');
+    const data = await res.json();
+    docs = data.documents || [];
+
+    if (docs.length === 0) {
+      list.innerHTML = '<div class="no-docs">暂无文档</div>';
+      return;
+    }
+
+    list.innerHTML = docs.map(d => `
+      <div class="doc-item ${selectedDoc && selectedDoc.id === d.id ? 'active' : ''}"
+           onclick="selectDoc('${d.id}', '${d.title}')">
+        <div>
+          <div class="name">${d.title}</div>
+          <div class="meta">共 ${d.total_chapters} 章</div>
+        </div>
+        <div class="status">${selectedDoc && selectedDoc.id === d.id ? '✓ 已选' : '选择'}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    list.innerHTML = '<div class="error">加载失败: ' + e.message + '</div>';
+  }
+}
+
+// Select document
+function selectDoc(id, title) {
+  selectedDoc = { id, title };
+  document.getElementById('queryHint').textContent = '📖 当前文档: ' + title;
+  document.getElementById('chapterInput').disabled = false;
+  document.getElementById('queryBtn').disabled = false;
+  document.getElementById('analysisArea').innerHTML = `
+    <div class="placeholder">
+      <div class="icon">🔮</div>
+      <div class="text">已选择「${title}」，输入章节编号后点击分析</div>
+    </div>`;
+  loadDocs();
+}
+
+// Query chapter
+async function queryChapter() {
+  const ch = parseInt(document.getElementById('chapterInput').value);
+  const btn = document.getElementById('queryBtn');
+  const area = document.getElementById('analysisArea');
+
+  if (!selectedDoc) { alert('请先选择一个文档'); return; }
+  if (!ch || ch < 1) { alert('请输入有效的章节编号'); return; }
+
+  btn.disabled = true;
+  area.innerHTML = '<div class="loading"><div class="spinner"></div><p style="margin-top:12px">AI 分析中...</p></div>';
+
+  try {
+    const res = await fetch(`/documents/${selectedDoc.id}/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter: ch, question: '' })
+    });
+    const data = await res.json();
+
+    if (res.ok) {
+      area.innerHTML = `
+        <div style="margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #eee">
+          <strong>第 ${data.chapter} 章 ${data.chapter_title}</strong>
+        </div>
+        <div class="analysis">${renderAnalysis(data.analysis)}</div>`;
+    } else {
+      area.innerHTML = `<div class="error">❌ 查询失败: ${data.detail || '未知错误'}</div>`;
+    }
+  } catch (e) {
+    area.innerHTML = `<div class="error">❌ 网络错误: ${e.message}</div>`;
+  }
+  btn.disabled = false;
+}
+
+// Render markdown-like analysis as HTML
+function renderAnalysis(text) {
+  if (!text) return '';
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/### (.+)/g, '<h3>$1</h3>')
+    .replace(/## (.+)/g, '<h2>$1</h2>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^(\d+\.\s.*)/gm, '<li>$1</li>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+  return '<p>' + html + '</p>';
+}
+
+// Initial load
+loadDocs();
+</script>
+</body>
+</html>
