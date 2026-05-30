@@ -1,11 +1,15 @@
 import time
+from typing import List
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from api.chat import router as chat_router
 from core.config import Config
+from core.state import set_active_doc_ids, get_active_doc_ids
 from services.embedding import EmbeddingService
+
 
 app = FastAPI(title="RAG API - World Memory System")
 
@@ -18,6 +22,21 @@ app.add_middleware(
 )
 
 app.include_router(chat_router)
+
+
+class ActiveDocsRequest(BaseModel):
+    doc_ids: List[str]
+
+
+@app.get("/documents/active")
+def get_active_docs():
+    return {"active_doc_ids": list(get_active_doc_ids())}
+
+
+@app.post("/documents/active")
+def set_active_docs(req: ActiveDocsRequest):
+    set_active_doc_ids(req.doc_ids)
+    return {"active_doc_ids": list(get_active_doc_ids()), "count": len(get_active_doc_ids())}
 
 
 @app.get("/health")

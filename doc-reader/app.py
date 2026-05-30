@@ -12,6 +12,8 @@ from services.indexer import DocumentIndexer
 from services.embedding import embed
 from services.llm import chat as llm_chat
 
+RAG_API_BASE = os.getenv("RAG_API_URL", "http://rag-api:8000")
+
 app = FastAPI(title="Doc Reader - 长文档智能阅读")
 
 app.add_middleware(
@@ -31,6 +33,23 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/")
 def index():
     return FileResponse("static/index.html")
+
+
+# Proxy: get active mounted docs from rag-api
+@app.get("/rag-api/documents/active")
+def proxy_get_active_docs():
+    r = httpx.get(f"{RAG_API_BASE}/documents/active", timeout=5)
+    return r.json()
+
+
+# Proxy: set active mounted docs on rag-api
+class ActiveDocsRequest(BaseModel):
+    doc_ids: list[str]
+
+@app.post("/rag-api/documents/active")
+def proxy_set_active_docs(req: ActiveDocsRequest):
+    r = httpx.post(f"{RAG_API_BASE}/documents/active", json={"doc_ids": req.doc_ids}, timeout=5)
+    return r.json()
 
 
 CHAT_SYSTEM_PROMPT = """你是一个文档智能问答助手。你可以访问一篇文档的全部内容。

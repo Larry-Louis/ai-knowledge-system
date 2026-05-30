@@ -144,14 +144,19 @@ class QdrantStore:
 
     DOCUMENTS_COLLECTION = "documents"
 
-    def search_documents(self, embedding: list[float], top_k: int = 4) -> list[dict]:
-        """Search uploaded documents for relevant content."""
+    DOC_SCORE_THRESHOLD = 0.65
+
+    def search_documents(self, embedding: list[float], top_k: int = 4, doc_ids: list[str] | None = None) -> list[dict]:
+        """Search uploaded documents for relevant content. If doc_ids provided, only search those documents."""
+        conditions = [FieldCondition(key="type", match=MatchValue(value="chapter"))]
+        if doc_ids:
+            from qdrant_client.models import MatchAny
+            conditions.append(FieldCondition(key="doc_id", match=MatchAny(any=doc_ids)))
+
         results = self.client.query_points(
             collection_name=self.DOCUMENTS_COLLECTION,
             query=embedding,
-            query_filter=Filter(
-                must=[FieldCondition(key="type", match=MatchValue(value="chapter"))]
-            ),
+            query_filter=Filter(must=conditions),
             limit=top_k,
         )
         return [
@@ -163,6 +168,7 @@ class QdrantStore:
                 "score": p.score,
             }
             for p in results.points
+            if p.score >= self.DOC_SCORE_THRESHOLD
         ]
 
     def get_summary(self) -> str | None:

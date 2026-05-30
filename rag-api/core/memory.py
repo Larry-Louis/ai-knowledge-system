@@ -55,8 +55,12 @@ class MemoryManager:
         all_memories = _merge_memories(related, global_memories + recent_global)
         summary = self.qdrant.get_summary()
 
-        # Search uploaded documents for relevant context
-        doc_chunks = self.qdrant.search_documents(embedding, top_k=4)
+        # Search ONLY actively mounted documents for relevant context
+        from core.state import get_active_doc_ids
+        active_docs = get_active_doc_ids()
+        doc_chunks = []
+        if active_docs:
+            doc_chunks = self.qdrant.search_documents(embedding, top_k=4, doc_ids=list(active_docs))
 
         final_prompt = build_prompt(
             request_messages=messages,

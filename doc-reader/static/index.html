@@ -80,6 +80,7 @@ header .upload-btn:hover { background: #3b5de7; }
   <select id="docSelect" onchange="selectDoc()">
     <option value="">— 选择文档 —</option>
   </select>
+  <button id="mountBtn" style="display:none;background:#4a6cf7;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:13px;cursor:pointer" onclick="toggleMount(selectedDocId)">⛓️ 挂载</button>
   <button class="upload-btn" onclick="showUpload()">+ 上传</button>
   <span class="doc-info" id="docInfo"></span>
 </header>
@@ -122,6 +123,32 @@ header .upload-btn:hover { background: #3b5de7; }
 let selectedDocId = null;
 let selectedDocTitle = '';
 let chatHistory = [];
+let mountedDocs = new Set();
+
+// Load mounted docs from rag-api
+async function loadMounted() {
+  try {
+    const r = await fetch('/rag-api/documents/active');
+    if (r.ok) {
+      const data = await r.json();
+      mountedDocs = new Set(data.active_doc_ids || []);
+    }
+  } catch(e) {}
+}
+
+// Mount/unmount a document
+async function toggleMount(docId) {
+  if (mountedDocs.has(docId)) mountedDocs.delete(docId);
+  else mountedDocs.add(docId);
+  try {
+    await fetch('/rag-api/documents/active', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({doc_ids: [...mountedDocs]})
+    });
+  } catch(e) { console.error('mount error:', e); }
+  loadDocs();
+}
 
 // Load documents
 async function loadDocs() {
@@ -146,9 +173,12 @@ function selectDoc() {
   const sel = document.getElementById('docSelect');
   selectedDocId = sel.value || null;
   selectedDocTitle = sel.options[sel.selectedIndex]?.text || '';
-  document.getElementById('docInfo').textContent = selectedDocId ? selectedDocTitle : '';
+  document.getElementById('docInfo').textContent = selectedDocId
+    ? `${selectedDocTitle} ${mountedDocs.has(selectedDocId) ? '🔗' : ''}`
+    : '';
   document.getElementById('msgInput').disabled = !selectedDocId;
   document.getElementById('sendBtn').disabled = !selectedDocId;
+  updateMountBtn();
   
   if (selectedDocId) {
     document.getElementById('chatArea').innerHTML = `
@@ -156,10 +186,35 @@ function selectDoc() {
         <div class="avatar">🤖</div>
         <div class="bubble">
           文档已就绪！你可以问我任何关于这份文档的问题。
+          ${mountedDocs.has(selectedDocId)
+            ? '\n\n📎 当前文档已挂载，对话会引用其中的内容。'
+            : '\n\n🔇 当前文档未挂载，点击上方「挂载」按钮后在对话中引用。'}
         </div>
       </div>`;
     chatHistory = [];
   }
+}
+
+function updateMountBtn() {
+  const btn = document.getElementById('mountBtn');
+  if (!selectedDocId) { btn.style.display = 'none'; return; }
+  btn.style.display = 'inline-block';
+  const mounted = mountedDocs.has(selectedDocId);
+  btn.textContent = mounted ? '🔗 已挂载' : '⛓️ 挂载';
+  btn.style.background = mounted ? '#28a745' : '#4a6cf7';
+}
+
+async function toggleMount(docId) {
+  if (mountedDocs.has(docId)) mountedDocs.delete(docId);
+  else mountedDocs.add(docId);
+  try {
+    await fetch('/rag-api/documents/active', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({doc_ids: [...mountedDocs]})
+    });
+  } catch(e) { console.error('mount error:', e); }
+  selectDoc();
 }
 
 // Show/hide upload

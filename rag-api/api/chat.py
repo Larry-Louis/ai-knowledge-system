@@ -23,10 +23,12 @@ def get_last_prompt():
 @router.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 def chat_completions(request: ChatCompletionRequest):
     try:
+        # "default" means the client didn't specify a model — use config default
+        model = request.model if request.model != "default" else None
         result = memory_manager.process_request(
             request_messages=request.messages,
             session_id=request.session_id,
-            model=request.model,
+            model=model,
         )
 
         msg = {

@@ -40,9 +40,11 @@ def _build_system_content(base: str, world_summary: str | None, related_memories
             memory_lines.append(f"[{label}]: {m['content']}")
         parts.append("\n\n[相关历史记忆]\n" + "\n".join(memory_lines))
 
-    if document_chunks:
+    # 只包含相似度足够高的文档片段（score ≥ 0.65）
+    relevant_docs = [d for d in (document_chunks or []) if d.get("score", 0) >= 0.65]
+    if relevant_docs:
         doc_lines = []
-        for d in document_chunks:
+        for d in relevant_docs:
             doc_lines.append(f"[来自《{d['doc_title']}》第{d['chapter']}章 {d['title']}]: {d['content'][:800]}")
         parts.append("\n\n[文档参考]\n" + "\n".join(doc_lines))
 
