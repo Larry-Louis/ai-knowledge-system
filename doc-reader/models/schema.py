@@ -15,14 +15,10 @@ class DocumentInfo(BaseModel):
     chapters: List[ChapterInfo]
 
 
-class QueryRequest(BaseModel):
-    chapter: int
-    question: Optional[str] = ""
+class ChatRequest(BaseModel):
+    message: str
 
 
-class QueryResponse(BaseModel):
-    document_id: str
-    chapter: int
-    chapter_title: str
-    chapter_content: str
-    analysis: str
+class ChatResponse(BaseModel):
+    reply: str
+    sources: List[str] = []

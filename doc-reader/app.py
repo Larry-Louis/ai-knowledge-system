@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from models.schema import QueryRequest, QueryResponse
+from models.schema import ChatRequest, ChatResponse
 from services.parser import split_by_chapter, extract_pdf_text, validate_text
 from services.indexer import DocumentIndexer
 from services.embedding import embed
@@ -33,17 +33,14 @@ def index():
     return FileResponse("static/index.html")
 
 
-SYSTEM_PROMPT = """你是一个文档分析AI助手。用户会给你一篇文档中某个章节的内容，以及从文档其他部分检索到的相关内容。
+CHAT_SYSTEM_PROMPT = """你是一个文档智能问答助手。你可以访问一篇文档的全部内容。
 
-你的任务是：
-1. 先完整讲述该章节的核心内容
-2. 然后分析这个章节中提到的人物、事件、设定，与文档其他部分的关联：
-   - 这些人/事在之前的章节中有什么铺垫
-   - 这些人/事在之后的章节中有什么发展或结果
-   - 这个章节埋下了哪些伏笔
-   - 这个章节呼应了之前的哪些内容
-
-请用中文回答，条理清晰。"""
+你的工作方式：
+- 当用户问你关于文档的问题时，我会从全文中检索相关段落给你作为参考
+- 基于检索到的内容，用自然对话的方式回答用户
+- 如果用户提到某个人物/事件，尽可能关联它在文档其他部分的发展和前后关系
+- 回答要像在聊天一样自然，不要输出格式化报告
+- 如果检索到的信息不够，如实告知用户"""
 
 
 @app.get("/health")
@@ -124,57 +121,48 @@ def list_documents():
     return {"documents": docs}
 
 
-@app.post("/documents/{doc_id}/query", response_model=QueryResponse)
-def query_document(doc_id: str, req: QueryRequest):
-    """Query a specific chapter with cross-chapter analysis."""
-    # Get the chapter
-    chapter = indexer.get_chapter(doc_id, req.chapter)
-    if not chapter:
-        raise HTTPException(404, f"文档中未找到第 {req.chapter} 章")
+@app.post("/documents/{doc_id}/chat", response_model=ChatResponse)
+def chat_with_document(doc_id: str, req: ChatRequest):
+    """Chat with a document. AI automatically searches across all chapters for relevant context."""
+    # Embed user message
+    query_embedding = embed(req.message)
 
-    # Search related chapters
-    chapter_embedding = embed(chapter["content"][:2000])
-    related = indexer.search_related(doc_id, req.chapter, chapter_embedding, top_k=6)
+    # Search across the entire document for relevant content
+    all_chunks = indexer.search_all(doc_id, query_embedding, top_k=8)
 
-    # Build prompt
-    related_text = ""
-    if related:
-        related_text = "\n\n## 文档其他相关段落\n\n"
-        for r in related:
-            related_text += f"--- 第{r['chapter']}章 {r['title']} ---\n"
-            related_text += r["content"][:800] + "\n\n"
+    # Build context from retrieved chunks
+    context = ""
+    sources = []
+    for c in all_chunks:
+        label = f"[第{c['chapter']}章 {c['title']}]"
+        context += f"{label}\n{c['content'][:1200]}\n\n"
+        sources.append(f"第{c['chapter']}章")
 
-    user_prompt = f"""## 当前章节
-第{chapter['chapter']}章 {chapter['title']}
+    user_prompt = f"""以下是文档中与你问题相关的段落：
 
-{chapter['content']}
+{context}
 
-{related_text}
-
-## 要求
-请先概述第{chapter['chapter']}章的核心内容，然后分析：
-1. 本章中的人物在之前或之后章节中的行动和发展
-2. 本章中的事件与前后的关联
-3. 本章埋下的伏笔或呼应前文的地方
-4. 其他值得注意的跨章节关联"""
+用户问题: {req.message}"""
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": CHAT_SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt},
     ]
 
     try:
-        analysis = llm_chat(messages)
+        reply = llm_chat(messages)
     except Exception as e:
-        raise HTTPException(500, f"分析生成失败: {e}")
+        raise HTTPException(500, f"回答生成失败: {e}")
 
-    return QueryResponse(
-        document_id=doc_id,
-        chapter=chapter["chapter"],
-        chapter_title=chapter["title"],
-        chapter_content=chapter["content"][:2000],
-        analysis=analysis,
-    )
+    # Deduplicate source chapter names
+    seen = set()
+    sources_uniq = []
+    for s in sources:
+        if s not in seen:
+            seen.add(s)
+            sources_uniq.append(s)
+
+    return ChatResponse(reply=reply, sources=sources_uniq)
 
 
 @app.delete("/documents/{doc_id}")

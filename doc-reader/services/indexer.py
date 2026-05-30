@@ -118,6 +118,31 @@ class DocumentIndexer:
                 break
         return related
 
+    def search_all(
+        self, doc_id: str, embedding: list[float], top_k: int = 8
+    ) -> list[dict]:
+        """Search across ALL chapters of a document for relevant content."""
+        results = self.client.query_points(
+            collection_name=COLLECTION,
+            query=embedding,
+            query_filter=Filter(
+                must=[
+                    FieldCondition(key="doc_id", match=MatchValue(value=doc_id)),
+                    FieldCondition(key="type", match=MatchValue(value="chapter")),
+                ]
+            ),
+            limit=top_k,
+        )
+        return [
+            {
+                "chapter": p.payload["chapter"],
+                "title": p.payload["title"],
+                "content": p.payload["content"],
+                "score": p.score,
+            }
+            for p in results.points
+        ]
+
     def list_documents(self) -> list[dict]:
         """List all indexed documents."""
         results = self.client.scroll(
