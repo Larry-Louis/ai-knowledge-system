@@ -24,4 +24,8 @@ def get_active_role() -> str:
 
 def set_active_role(role: str):
     global _active_role
+    from core.config import Config
+    allowed = set(Config.MEMORY_LAYERS.keys()) | {Config.CORE_LAYER}
+    if role not in allowed:
+        raise ValueError(f"未知记忆层: {role}，可用层: {', '.join(sorted(allowed))}")
     _active_role = role

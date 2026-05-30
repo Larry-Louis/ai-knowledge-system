@@ -1,7 +1,7 @@
 import time
 from typing import List
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -45,13 +45,20 @@ def set_active_docs(req: ActiveDocsRequest):
 
 @app.get("/role")
 def get_role():
-    return {"role": get_active_role()}
+    return {
+        "role": get_active_role(),
+        "available_layers": Config.MEMORY_LAYERS,
+    }
 
 
 @app.post("/role")
 def set_role(req: RoleRequest):
-    set_active_role(req.role)
-    return {"role": get_active_role(), "message": f"已切换到 {req.role} 角色"}
+    try:
+        set_active_role(req.role)
+        return {"role": get_active_role(), "message": f"已切换到「{req.role}」层"}
+    except ValueError as e:
+        from fastapi import HTTPException
+        raise HTTPException(400, str(e))
 
 
 @app.get("/health")

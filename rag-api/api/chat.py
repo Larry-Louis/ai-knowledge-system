@@ -24,7 +24,7 @@ def get_last_prompt():
 @router.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 def chat_completions(request: ChatCompletionRequest):
     try:
-        # Parse model name: "deepseek-v4-flash:game" → model=deepseek-v4-flash, role=game
+        # Parse model name: "deepseek-v4-flash:game" or bare "game"
         model_str = request.model if request.model != "default" else ""
         model = model_str
         if ":" in model_str:
@@ -33,6 +33,10 @@ def chat_completions(request: ChatCompletionRequest):
             role = parts[1].strip()
             if role:
                 set_active_role(role)
+        elif model_str in Config.MEMORY_LAYERS or model_str == Config.CORE_LAYER:
+            # Bare layer name like "game" → switch role, model = None (use default)
+            set_active_role(model_str)
+            model = None
 
         result = memory_manager.process_request(
             request_messages=request.messages,

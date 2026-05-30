@@ -25,5 +25,13 @@ class Config:
     MEMORY_TOP_K = int(os.getenv("MEMORY_TOP_K", "8"))
     SUMMARY_INTERVAL = int(os.getenv("SUMMARY_INTERVAL", "30"))
 
+    # 记忆层定义：core 始终生效，其他层按需激活
+    MEMORY_LAYERS = {
+        "general": "默认对话",
+        "game": "游戏世界观设计",
+        "doc": "文档分析与故事阅读",
+    }
+    CORE_LAYER = "core"
+
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", "8000"))
