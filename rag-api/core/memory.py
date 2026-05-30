@@ -1,5 +1,6 @@
 import time
 import uuid
+import hashlib
 
 from core.config import Config
 from core.state import get_active_role
@@ -52,10 +53,19 @@ class MemoryManager:
         self._model_override = None
         self.last_prompt = None
 
+    def _derive_session_id(self, messages: list) -> str:
+        """Generate a stable session_id from the first user message in the conversation."""
+        for m in messages:
+            role = m.role if hasattr(m, "role") else m.get("role")
+            content = m.content if hasattr(m, "content") else m.get("content", "")
+            if role == "user" and content:
+                return "s-" + hashlib.md5(content.encode()).hexdigest()[:16]
+        return "s-" + uuid.uuid4().hex[:16]
+
     def process_request(self, request_messages: list, session_id: str | None = None, model: str | None = None) -> dict:
         self._model_override = model
         if not session_id:
-            session_id = str(uuid.uuid4())
+            session_id = self._derive_session_id(request_messages)
 
         messages = _to_dicts(request_messages)
 
