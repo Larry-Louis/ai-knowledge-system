@@ -144,22 +144,21 @@ class DocumentIndexer:
         ]
 
     def list_documents(self) -> list[dict]:
-        """List all indexed documents."""
+        """List all indexed documents with chunk counts."""
         results = self.client.scroll(
             collection_name=COLLECTION,
-            limit=100,
+            limit=500,
             with_payload=True,
         )[0]
-        seen = {}
+        counts = {}
+        seen_order = []
         for p in results:
             pid = p.payload["doc_id"]
-            if pid not in seen:
-                seen[pid] = {
-                    "id": pid,
-                    "title": p.payload["doc_title"],
-                    "total_chapters": p.payload["total_chapters"],
-                }
-        return list(seen.values())
+            if pid not in counts:
+                counts[pid] = {"id": pid, "title": p.payload["doc_title"], "count": 0}
+                seen_order.append(pid)
+            counts[pid]["count"] += 1
+        return [counts[pid] for pid in seen_order]
 
     def delete_document(self, doc_id: str) -> bool:
         """Delete all chapters of a document."""

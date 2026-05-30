@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from models.schema import ChatRequest, ChatResponse
-from services.parser import split_by_chapter, flatten_chunks, extract_pdf_text, validate_text
+from services.parser import parse_document, extract_pdf_text, validate_text
 from services.indexer import DocumentIndexer
 from services.embedding import embed
 from services.llm import chat as llm_chat
@@ -107,15 +107,10 @@ async def upload_document(file: UploadFile):
     if not valid:
         raise HTTPException(400, err)
 
-    # Split into chapters, then into paragraph-based chunks
-    chapters = split_by_chapter(text)
-    if not chapters:
-        raise HTTPException(400, "未能解析出任何章节内容")
-
-    # Flatten into chunks (each chunk ≤ 1000 chars, split by paragraph)
-    chunks = flatten_chunks(chapters, max_chars=1000)
+    # Parse into sequentially numbered chunks (each ≤ 1000 chars)
+    chunks = parse_document(text)
     if not chunks:
-        raise HTTPException(400, "未能解析出任何有效段落")
+        raise HTTPException(400, "未能解析出任何有效内容")
 
     # Generate document ID
     doc_id = str(uuid.uuid4())
@@ -136,7 +131,6 @@ async def upload_document(file: UploadFile):
     return {
         "document_id": doc_id,
         "title": doc_title,
-        "total_chapters": len(chapters),
         "total_chunks": len(chunks),
         "indexed": count,
     }

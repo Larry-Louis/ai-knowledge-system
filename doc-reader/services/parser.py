@@ -2,6 +2,21 @@ import re
 import os
 
 
+def parse_document(text: str) -> list[dict]:
+    """Parse full document text into sequentially numbered chunks (no chapter detection)."""
+    chunks = chunk_by_paragraphs(text, max_chars=1000)
+    return [
+        {
+            "chapter": i + 1,
+            "title": f"第{i+1}段",
+            "chunk": 1,
+            "chunks_total": 1,
+            "content": c,
+        }
+        for i, c in enumerate(chunks)
+    ]
+
+
 def split_by_chapter(text: str) -> list[dict]:
     """Split text into chapters. Supports Chinese and English chapter markers."""
     # Patterns: 第一章, 第1章, 第 一 章,  Chapter 1, CHAPTER 1, Chapter One, etc.

@@ -227,7 +227,7 @@ async function loadDocs() {
     (data.documents || []).forEach(d => {
       const opt = document.createElement('option');
       opt.value = d.id;
-      opt.textContent = `${d.title} (${d.total_chapters}章)`;
+      opt.textContent = `${d.title} (${d.count || '?'}段)`;
       sel.appendChild(opt);
     });
     if (current && [...sel.options].some(o => o.value === current)) sel.value = current;
@@ -307,8 +307,7 @@ async function uploadDoc() {
     const r = await fetch('/documents/upload', { method: 'POST', body: fd });
     const data = await r.json();
     if (r.ok) {
-      const chunks = data.total_chunks || data.total_chapters;
-      status.innerHTML = '✅ 上传成功！' + data.total_chapters + ' 章，' + chunks + ' 块';
+      status.innerHTML = '✅ 上传成功！共 ' + data.total_chunks + ' 块';
       setTimeout(hideUpload, 1200);
       await loadDocs();
       document.getElementById('docSelect').value = data.document_id;
