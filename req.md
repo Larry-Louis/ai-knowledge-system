@@ -1,373 +1,299 @@
-# AI 世界观记忆系统（可运行实现版）
-
-## 目标
-
-实现一个 FastAPI 服务 `rag-api`，提供：
-
-### ✔ OpenAI兼容接口
-
-- `/v1/chat/completions`
-
-用于 OpenWebUI 直接接入
+# AI Knowledge System — 用户手册
 
 ---
 
-### ✔ 三层记忆系统
+## 一、快速启动
 
-1. short-term memory（最近对话）
-2. long-term memory（Qdrant）
-3. world summary memory（压缩世界观）
+### 前置条件
+- Docker Desktop（Windows）或 Docker Compose（Linux/Mac）
+- DeepSeek API Key（[deepseek.com](https://platform.deepseek.com) 注册获取）
 
----
+### 首次启动
 
-### ✔ 可切换 LLM
+```powershell
+# 1. 克隆项目后，在项目根目录创建 .env 文件
+echo DEEPSEEK_API_KEY=sk-your-key-here > .env
 
-支持：
+# 2. 启动所有服务
+docker compose up -d
 
-- Ollama（本地 Qwen 3.5 9B）
-- DeepSeek API
-- OpenAI API
+# 3. 拉取 embedding 模型到 Docker Ollama
+docker compose exec ollama ollama pull nomic-embed-text
 
-通过 config 切换，不改业务逻辑
-
----
-
-# 系统架构
-
+# 4. 验证服务运行
+curl --noproxy "*" http://localhost:18000/health
+curl --noproxy "*" http://localhost:19000/health
 ```
-OpenWebUI
-   ↓
-/v1/chat/completions (rag-api)
-   ↓
-Context Builder
-   ↓
-Memory Layer (Qdrant + session memory)
-   ↓
-LLM Adapter (Ollama / DeepSeek / OpenAI)
-   ↓
-Response
+
+### 日常启动
+
+```powershell
+docker compose up -d
+```
+
+### 停止
+
+```powershell
+docker compose down
 ```
 
 ---
 
-# 目录结构（必须实现）
+## 二、服务总览
+
+| 服务 | 地址 | 用途 |
+|------|------|------|
+| **Open WebUI** | http://localhost:4500 | 对话前端 |
+| **rag-api** | http://localhost:18000 | 对话+记忆 API |
+| **doc-reader** | http://localhost:19000 | 文档上传+对话 |
+| **Qdrant 管理** | http://localhost:6333/dashboard | 数据库后台 |
+
+---
+
+## 三、Open WebUI 配置
+
+### 添加连接
+
+管理员面板 → 设置 → 外部连接 → 添加 OpenAI 兼容 API：
+
+| 字段 | 值 |
+|------|-----|
+| API URL | `http://host.docker.internal:18000/v1` |
+| API Key | 留空 |
+| 模型 ID | 留空（或填 `story`） |
+
+### 使用分层记忆
+
+在模型 ID 输入框直接填层名来切换：
+
+| 模型 ID | 效果 |
+|---------|------|
+| `general` | 默认对话层 |
+| `story` | 故事创作 & 世界观设计层 |
+| `docreader` | 文档分析 & 阅读层 |
+| `deepseek-v4-flash:story` | 用 Flash 模型 + story 层 |
+| `deepseek-v4-pro:docreader` | 用 Pro 模型 + docreader 层 |
+
+**注意**：`core` 层不可直接切换，它始终生效。
+
+---
+
+## 四、分层记忆系统
+
+### 层级结构
 
 ```
-rag-api/
-├── app.py
-├── api/
-│   └── chat.py
-├── core/
-│   ├── memory.py
-│   ├── prompt.py
-│   ├── llm.py
-│   ├── config.py
-│   └── router.py
-├── services/
-│   ├── qdrant_store.py
-│   ├── embedding.py
-│   └── session_store.py
-└── models/
-    └── schema.py
+core（核心层）     ← 始终生效，不随切换改变
+  │                ← 存放用户偏好、性格、最重要的全局设定
+  │
+  ├── general     ← 默认层（未指定角色时使用）
+  ├── story       ← 故事创作 & 世界观设计
+  └── docreader   ← 文档分析 & 阅读
+```
+
+### 工作原理
+
+- 每个层的记忆**完全隔离**
+- 切换层后，只看到 `core` + 当前层的记忆
+- 聊天内容自动存入当前层
+- 全局摘要（summary）跨层共享
+
+### 查看当前层
+
+```powershell
+curl --noproxy "*" http://localhost:18000/role
+```
+
+### 手动切换层
+
+```powershell
+curl --noproxy "*" -X POST http://localhost:18000/role ^
+  -H "Content-Type: application/json" ^
+  -d "{\"role\":\"story\"}"
+```
+
+### 新增记忆层（需要改代码）
+
+修改 `rag-api/core/config.py` 中的 `MEMORY_LAYERS` 字典：
+
+```python
+MEMORY_LAYERS = {
+    "general": "默认对话",
+    "story": "故事创作与世界观设计",
+    "docreader": "文档分析与阅读",
+    "newlayer": "新层说明",   # ← 在这里加
+}
+```
+
+然后重启 rag-api：
+```powershell
+docker compose restart rag-api
+```
+
+涉及的文件：
+- `rag-api/core/config.py` — 定义层名和说明
+- `rag-api/core/state.py` — 切换时校验层名（自动读取 Config，无需改动）
+- `rag-api/services/qdrant_store.py` — 存储/搜索时按 layer 过滤（无需改动）
+
+---
+
+## 五、文档分析（doc-reader）
+
+### 上传文档
+
+浏览器打开 http://localhost:19000，点击「上传」选择 .txt 或 .pdf 文件。
+
+### 挂载文档
+
+上传后，点击文档旁的「挂载」按钮（变绿显示「已挂载」）。
+只有已挂载的文档才会在对话中被搜索引用。
+
+### 文档对话
+
+挂载文档后，在 Open WebUI 中聊天（建议用 `docreader` 层），AI 会自动搜索文档内容。
+
+### 删除文档
+
+选择文档后，点击「删除」按钮。会同时从挂载列表移除。
+
+### API 方式
+
+```powershell
+# 上传
+curl --noproxy "*" -X POST http://localhost:19000/documents/upload -F "file=@小说.txt"
+
+# 列出文档
+curl --noproxy "*" http://localhost:19000/documents
+
+# 挂载文档
+curl --noproxy "*" -X POST http://localhost:18000/documents/active ^
+  -H "Content-Type: application/json" ^
+  -d "{\"doc_ids\":[\"文档ID\"]}"
 ```
 
 ---
 
-# API 规范（必须实现）
+## 六、Qdrant 数据结构
 
-## POST /v1/chat/completions
+### memories 集合（对话记忆）
 
-### Request
-
-```
+```json
 {
-  "model": "any",
-  "messages": [
-    {"role": "system", "content": "..."},
-    {"role": "user", "content": "..."}
-  ],
-  "session_id": "abc123"
+  "session_id": "uuid",
+  "role": "user | assistant",
+  "layer": "general | story | docreader | core",
+  "content": "对话内容",
+  "type": "memory | summary",
+  "timestamp": 1234567890
+}
+```
+
+### documents 集合（文档章节）
+
+```json
+{
+  "doc_id": "uuid",
+  "doc_title": "文件名",
+  "chapter": 1,
+  "title": "第一章",
+  "content": "章节内容",
+  "type": "chapter",
+  "total_chapters": 18
 }
 ```
 
 ---
 
-### Response
+## 七、调试工具
 
-```
-{
-  "id": "chatcmpl-xxx",
-  "object": "chat.completion",
-  "choices": [
-    {
-      "index": 0,
-      "message": {
-        "role": "assistant",
-        "content": "..."
-      }
-    }
-  ]
-}
+### 查看最近一次完整 prompt
+
+```powershell
+curl --noproxy "*" http://localhost:18000/v1/last-prompt
 ```
 
----
+返回内容包含系统提示、搜索到的记忆、文档引用等。
 
-# 核心逻辑流程（必须实现）
+### 查看各层记忆
 
-## 1. 请求入口
+```powershell
+# 通过 Qdrant 后台查看
+http://localhost:6333/dashboard
 
+# 或让我帮你查
 ```
-messages + session_id
+
+### 预热 embedding 模型（冷启动时）
+
+```powershell
+curl --noproxy "*" -X POST http://localhost:18000/warmup
 ```
 
 ---
 
-## 2. memory retrieval（关键）
+## 八、系统迁移
 
-### step1：存储当前 user message
+### 迁移到新机器
 
+```powershell
+# 1. 复制整个项目文件夹
+# 2. 新机器上安装 Docker Desktop
+# 3. 创建 .env 文件（DeepSeek API Key）
+# 4. 启动 + 拉模型
+docker compose up -d
+docker compose exec ollama ollama pull nomic-embed-text
 ```
-save_to_session(session_id, role="user", content=...)
+
+### 数据迁移
+
+Qdrant 数据存储在 Docker 卷中：
+
+```powershell
+# 备份
+docker run --rm -v ai-knowledge-system_qdrant-data:/data -v %CD%:/backup alpine tar czf /backup/qdrant-backup.tar.gz -C /data .
+
+# 恢复
+docker run --rm -v ai-knowledge-system_qdrant-data:/data -v %CD%:/backup alpine tar xzf /backup/qdrant-backup.tar.gz -C /data
 ```
+
+### 修改模型
+
+当前对话模型用 DeepSeek，如需换回本地模型或 OpenAI：
+
+1. 修改 `rag-api/core/config.py` 中的 `LLM_PROVIDER`
+2. 确保 API Key / 本地模型已就绪
+3. 重启 rag-api
 
 ---
 
-### step2：向量检索历史
+## 九、常见问题
 
-```
-related_memories = qdrant.search(
-    query_embedding=user_message,
-    top_k=8,
-    filter=session_id
-)
-```
+### 对话时报 500 错误
 
----
+可能是因为：
+- Ollama 容器未启动 → `docker compose ps` 检查
+- DeepSeek API Key 无效 → 检查 `.env` 文件
+- Embedding 模型未拉取 → `docker compose exec ollama ollama pull nomic-embed-text`
 
-### step3：最近对话（short-term）
+### 文档上传后内容为空
 
-```
-recent_messages = get_last_n_messages(session_id, n=20)
-```
+检查文档是否为扫描件（图片型 PDF），当前只支持文字版 PDF 和 txt。
 
----
+### 思维链不显示
 
-### step4：world summary
+确认 Open WebUI 版本支持 reasoning_content 展示。可在 `/v1/last-prompt` 中确认返回是否包含 `reasoning_content`。
 
-```
-world_summary = load_summary(session_id)
-```
+### 记忆层不生效
+
+确认模型 ID 填写正确（`story` / `docreader` / `general`）。
+旧数据可能没有 `layer` 字段，需重新生成。
 
 ---
 
-## 3. prompt builder（必须统一）
-
-```
-final_prompt = [
-    SYSTEM_PROMPT,
-    world_summary,
-    related_memories,
-    recent_messages,
-    current_user_message
-]
-```
-
----
-
-## 4. LLM调用（抽象层）
-
-```
-llm = LLMFactory.get(provider=config.LLM_PROVIDER)
-
-response = llm.chat(messages=final_prompt)
-```
-
----
-
-# LLM Adapter（必须实现）
-
-## interface
-
-```
-class LLMClient:
-    def chat(self, messages: list[dict]) -> str:
-        raise NotImplementedError
-```
-
----
-
-## Ollama实现
-
-```
-class OllamaClient(LLMClient):
-    model = "qwen2.5:9b"
-
-    def chat(self, messages):
-        # http://localhost:11434/api/chat
-```
-
----
-
-## DeepSeek实现
-
-```
-class DeepSeekClient(LLMClient):
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-
-    def chat(self, messages):
-        # OpenAI-compatible endpoint
-```
-
----
-
-## OpenAI实现
-
-```
-class OpenAIClient(LLMClient):
-    def chat(self, messages):
-        # OpenAI API call
-```
-
----
-
-# Memory系统（Qdrant）
-
-## 存储结构
-
-```
-{
-  "id": uuid,
-  "session_id": "...",
-  "role": "user|assistant",
-  "content": "...",
-  "embedding": vector,
-  "timestamp": ...
-}
-```
-
----
-
-## 必须实现功能
-
-- upsert memory
-- search memory by embedding
-- filter by session_id
-
----
-
-# Embedding模型
-
-默认：
-
-```
-BAAI/bge-base-zh-v1.5
-```
-
----
-
-# Session Store（必须实现）
-
-```
-session_id -> list[messages]
-```
-
-用于：
-
-- 最近20轮对话
-- prompt拼接
-
----
-
-# Prompt规则（非常重要）
-
-必须保证：
-
-### SYSTEM固定：
-
-```
-你是一个长期世界构建AI（小说/游戏设计助手）
-你必须保证设定一致性
-```
-
----
-
-### 每次输入必须包含：
-
-- 整体 summary
-- 相关 memory
-- 最近对话
-- 当前问题
-
----
-
-# OpenWebUI对接要求
-
-必须保证：
-
-```
-Base URL:
-http://rag-api:8000/v1
-
-Model:
-anything
-```
-
----
-
-# 配置文件（必须实现）
-
-```
-class Config:
-    LLM_PROVIDER = "ollama"  # ollama | deepseek | openai
-
-    OLLAMA_MODEL = "qwen2.5:9b"
-
-    QDRANT_URL = "http://qdrant:6333"
-```
-
----
-
-# 必须修复你当前代码的问题
-
-## ❌ 删除
-
-```
-VectorStoreIndex([])
-```
-
----
-
-## ❌ 不允许直接调用 embed model resolve OpenAI（你之前报错）
-
-必须：
-
-- 要么明确 embedding model
-- 要么完全走 local embedding
-
----
-
-# 最终效果
-
-实现后系统能力：
-
-## ✔ 长期记忆
-
-不会忘世界观
-
-## ✔ session连续性
-
-能持续构建剧情
-
-## ✔ 多模型切换
-
-一行 config 切换 LLM
-
-## ✔ OpenWebUI可用
-
-标准 OpenAI API
-
----
-
-# 一句话总结给 Claude
-
-> 这是一个“OpenAI兼容 API + Qdrant长期记忆 + 可切换LLM + 世界观持续构建系统”，需要实现完整 memory + prompt orchestration + LLM adapter layer。
+## 十、未实现的需求
+
+- **记忆可视化界面**：图形化查看/编辑各层记忆
+- **Streaming 支持**：当前为非流式响应
+- **批量文档导入**：一次上传多个文件
+- **文档全文检索**：关键词搜索而非仅语义搜索
+- **Ollama GPU 加速**：docker-compose 已预留 GPU 配置，但当前未启用
