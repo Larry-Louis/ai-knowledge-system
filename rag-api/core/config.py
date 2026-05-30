@@ -28,8 +28,8 @@ class Config:
     # 记忆层定义：core 始终生效，其他层按需激活
     MEMORY_LAYERS = {
         "general": "默认对话",
-        "game": "游戏世界观设计",
-        "doc": "文档分析与故事阅读",
+        "story": "故事创作与世界观设计",
+        "docreader": "文档分析与阅读",
     }
     CORE_LAYER = "core"
 

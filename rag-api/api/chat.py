@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from fastapi.responses import JSONResponse
 
+from core.config import Config
 from core.memory import MemoryManager
 from core.state import set_active_role
 from models.schema import ChatCompletionRequest, ChatCompletionResponse
