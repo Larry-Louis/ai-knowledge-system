@@ -62,6 +62,20 @@ def set_role(req: RoleRequest):
         raise HTTPException(400, str(e))
 
 
+@app.post("/memories/cleanup")
+def cleanup_memories():
+    """Delete auto-task memories from Qdrant."""
+    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    from services.qdrant_store import QdrantStore
+    from core.memory import _is_auto_task
+    qs = QdrantStore()
+    pts = qs.client.scroll(collection_name='memories', limit=500, with_payload=True)[0]
+    to_delete = [p.id for p in pts if _is_auto_task(p.payload.get("content", ""))]
+    if to_delete:
+        qs.client.delete(collection_name='memories', points_selector=to_delete)
+    return {"deleted": len(to_delete), "message": f"已清理 {len(to_delete)} 条自动任务记忆"}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}

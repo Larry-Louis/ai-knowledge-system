@@ -3,6 +3,26 @@ import uuid
 
 from core.config import Config
 from core.state import get_active_role
+
+
+def _is_auto_task(content: str) -> bool:
+    """Detect Open WebUI auto-generated task messages (tags, titles, follow-ups)."""
+    if not content:
+        return True
+    # Task prompts
+    if content.startswith("### Task:") or "<chat_history>" in content:
+        return True
+    # JSON-only responses from auto-tasks
+    stripped = content.strip()
+    if stripped.startswith("{"):
+        import json
+        try:
+            obj = json.loads(stripped)
+            if any(k in obj for k in ("tags", "title", "follow_ups")):
+                return True
+        except json.JSONDecodeError:
+            pass
+    return False
 from core.llm import LLMFactory
 from core.prompt import build_prompt
 from services.embedding import EmbeddingService
@@ -99,14 +119,17 @@ class MemoryManager:
         }
 
         self.sessions.add_message(session_id, "user", last_user_msg)
-        self.qdrant.upsert_memory(session_id, "user", last_user_msg, embedding, layer=active_role)
+        # Skip storing auto-task messages as memories
+        if not _is_auto_task(last_user_msg):
+            self.qdrant.upsert_memory(session_id, "user", last_user_msg, embedding, layer=active_role)
 
         llm = LLMFactory.get(model=getattr(self, '_model_override', None))
         response = llm.chat(final_prompt)
 
         self.sessions.add_message(session_id, "assistant", response)
-        resp_embedding = EmbeddingService.embed(response)
-        self.qdrant.upsert_memory(session_id, "assistant", response, resp_embedding, layer=active_role)
+        if not _is_auto_task(response):
+            resp_embedding = EmbeddingService.embed(response)
+            self.qdrant.upsert_memory(session_id, "assistant", response, resp_embedding, layer=active_role)
 
         msg_count = self.sessions.get_message_count(session_id)
         if msg_count > 0 and msg_count % (Config.SUMMARY_INTERVAL * 2) == 0:
