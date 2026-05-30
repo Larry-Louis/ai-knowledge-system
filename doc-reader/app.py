@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from models.schema import QueryRequest, QueryResponse
-from services.parser import split_by_chapter, validate_text
+from services.parser import split_by_chapter, extract_pdf_text, validate_text
 from services.indexer import DocumentIndexer
 from services.embedding import embed
 from services.llm import chat as llm_chat
@@ -53,20 +53,35 @@ def health():
 
 @app.post("/documents/upload")
 async def upload_document(file: UploadFile):
-    """Upload a text document, parse into chapters, and index into Qdrant."""
-    # Validate file type
-    if not file.filename.endswith(".txt"):
-        raise HTTPException(400, "仅支持 .txt 文件")
+    """Upload a document (.txt or .pdf), parse into chapters, and index into Qdrant."""
+    # Determine file type
+    fname = file.filename.lower()
+    is_pdf = fname.endswith(".pdf")
+    if not (fname.endswith(".txt") or is_pdf):
+        raise HTTPException(400, "仅支持 .txt 和 .pdf 文件")
 
-    # Read content
     raw = await file.read()
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError:
+
+    # Extract text
+    if is_pdf:
+        import tempfile, os
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         try:
-            text = raw.decode("gbk")
+            tmp.write(raw)
+            tmp.close()
+            text = extract_pdf_text(tmp.name)
+        finally:
+            os.unlink(tmp.name)
+        if not text.strip():
+            raise HTTPException(400, "PDF 文件无法提取出文本内容")
+    else:
+        try:
+            text = raw.decode("utf-8")
         except UnicodeDecodeError:
-            raise HTTPException(400, "文件编码不支持，请使用 UTF-8 或 GBK")
+            try:
+                text = raw.decode("gbk")
+            except UnicodeDecodeError:
+                raise HTTPException(400, "文件编码不支持，请使用 UTF-8 或 GBK")
 
     # Validate
     valid, err = validate_text(text)

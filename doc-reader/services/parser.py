@@ -38,6 +38,19 @@ def split_by_chapter(text: str) -> list[dict]:
     return chapters
 
 
+def extract_pdf_text(filepath: str) -> str:
+    """Extract text from a PDF file using PyMuPDF."""
+    import fitz
+    doc = fitz.open(filepath)
+    text_parts = []
+    for page in doc:
+        text = page.get_text()
+        if text.strip():
+            text_parts.append(text)
+    doc.close()
+    return "\n\n".join(text_parts)
+
+
 def validate_text(text: str) -> tuple[bool, str]:
     """Validate the uploaded text content."""
     if not text or not text.strip():
