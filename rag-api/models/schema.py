@@ -11,6 +11,7 @@ class ChatCompletionRequest(BaseModel):
     model: str = "default"
     messages: List[ChatMessage]
     session_id: Optional[str] = None
+    stream: Optional[bool] = False
 
 
 class ChatCompletionResponse(BaseModel):

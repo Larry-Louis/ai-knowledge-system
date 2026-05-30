@@ -83,6 +83,7 @@ header .upload-btn:hover { background: #3b5de7; }
   <button id="mountBtn" style="display:none;background:#4a6cf7;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:13px;cursor:pointer" onclick="toggleMount(selectedDocId)">⛓️ 挂载</button>
   <button id="deleteBtn" style="display:none;background:#dc3545;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:13px;cursor:pointer" onclick="deleteDoc()">🗑️ 删除</button>
   <button class="upload-btn" onclick="showUpload()">+ 上传</button>
+  <span style="font-size:12px;color:#888;cursor:pointer" id="mountSummary" onclick="showMountedList()">📎 挂载中: 0</span>
   <span class="doc-info" id="docInfo"></span>
 </header>
 
@@ -135,6 +136,7 @@ async function loadMounted() {
       mountedDocs = new Set(data.active_doc_ids || []);
     }
   } catch(e) {}
+  updateMountSummary();
 }
 
 // Delete document
@@ -152,6 +154,7 @@ async function deleteDoc() {
       selectedDocId = null;
       document.getElementById('docSelect').value = '';
       selectDoc();
+      updateMountSummary();
       loadDocs();
     } else {
       const data = await r.json();
@@ -162,16 +165,55 @@ async function deleteDoc() {
 
 // Mount/unmount a document
 async function toggleMount(docId) {
-  if (mountedDocs.has(docId)) mountedDocs.delete(docId);
-  else mountedDocs.add(docId);
+  const was = mountedDocs.has(docId);
+  if (was) mountedDocs.delete(docId); else mountedDocs.add(docId);
   try {
     await fetch('/rag-api/documents/active', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({doc_ids: [...mountedDocs]})
     });
-  } catch(e) { console.error('mount error:', e); }
-  loadDocs();
+    showToast(was ? '已取消挂载' : '已挂载，对话将引用此文档');
+  } catch(e) { showToast('挂载失败: ' + e.message); }
+  updateMountSummary();
+  selectDoc();
+}
+
+// Toast notification
+function showToast(msg) {
+  let el = document.getElementById('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:8px;font-size:14px;z-index:999;opacity:0;transition:opacity .3s';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  setTimeout(() => el.style.opacity = '0', 2000);
+}
+
+// Update mount summary in header
+function updateMountSummary() {
+  const el = document.getElementById('mountSummary');
+  el.textContent = mountedDocs.size > 0 ? `📎 挂载中: ${mountedDocs.size}` : '📎 挂载中: 0';
+}
+
+// Show list of mounted documents
+function showMountedList() {
+  if (mountedDocs.size === 0) {
+    showToast('当前没有挂载任何文档');
+    return;
+  }
+  // Get doc titles from the select options
+  const sel = document.getElementById('docSelect');
+  const names = [];
+  for (const opt of sel.options) {
+    if (mountedDocs.has(opt.value) && opt.value) {
+      names.push(opt.text.split(' (')[0]);
+    }
+  }
+  showToast('已挂载: ' + names.join(', '));
 }
 
 // Load documents
@@ -265,7 +307,8 @@ async function uploadDoc() {
     const r = await fetch('/documents/upload', { method: 'POST', body: fd });
     const data = await r.json();
     if (r.ok) {
-      status.innerHTML = '✅ 上传成功！共 ' + data.total_chapters + ' 章';
+      const chunks = data.total_chunks || data.total_chapters;
+      status.innerHTML = '✅ 上传成功！' + data.total_chapters + ' 章，' + chunks + ' 块';
       setTimeout(hideUpload, 1200);
       await loadDocs();
       document.getElementById('docSelect').value = data.document_id;
@@ -297,11 +340,15 @@ async function sendMsg() {
   const typingId = showTyping();
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000); // 2分钟超时
     const r = await fetch(`/documents/${selectedDocId}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: msg }),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
     const data = await r.json();
 
     // Remove typing indicator
@@ -314,7 +361,11 @@ async function sendMsg() {
     }
   } catch(e) {
     removeTyping(typingId);
-    addMessage('ai', '❌ 网络错误: ' + e.message);
+    if (e.name === 'AbortError') {
+      addMessage('ai', '⏱️ 请求超时，请稍后重试');
+    } else {
+      addMessage('ai', '❌ 网络错误: ' + e.message);
+    }
   }
   btn.disabled = false;
 }

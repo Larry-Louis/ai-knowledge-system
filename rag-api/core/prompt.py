@@ -37,7 +37,7 @@ def _build_system_content(base: str, world_summary: str | None, related_memories
         memory_lines = []
         for m in related_memories:
             label = "用户" if m["role"] == "user" else "AI助手"
-            memory_lines.append(f"[{label}]: {m['content']}")
+            memory_lines.append(f"[{label}]: {m['content'][:500]}")
         parts.append("\n\n[相关历史记忆]\n" + "\n".join(memory_lines))
 
     # 只包含相似度足够高的文档片段（score ≥ 0.65）

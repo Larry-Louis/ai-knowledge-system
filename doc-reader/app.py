@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from models.schema import ChatRequest, ChatResponse
-from services.parser import split_by_chapter, extract_pdf_text, validate_text
+from services.parser import split_by_chapter, flatten_chunks, extract_pdf_text, validate_text
 from services.indexer import DocumentIndexer
 from services.embedding import embed
 from services.llm import chat as llm_chat
@@ -107,31 +107,37 @@ async def upload_document(file: UploadFile):
     if not valid:
         raise HTTPException(400, err)
 
-    # Split into chapters
+    # Split into chapters, then into paragraph-based chunks
     chapters = split_by_chapter(text)
     if not chapters:
         raise HTTPException(400, "未能解析出任何章节内容")
+
+    # Flatten into chunks (each chunk ≤ 1000 chars, split by paragraph)
+    chunks = flatten_chunks(chapters, max_chars=1000)
+    if not chunks:
+        raise HTTPException(400, "未能解析出任何有效段落")
 
     # Generate document ID
     doc_id = str(uuid.uuid4())
     doc_title = file.filename.rsplit(".", 1)[0]
 
-    # Embed each chapter
+    # Embed each chunk
     embeddings = []
-    for i, ch in enumerate(chapters):
+    for i, ch in enumerate(chunks):
         try:
-            emb = embed(ch["content"][:2000])  # embed first 2000 chars
+            emb = embed(ch["content"][:2000])
         except Exception as e:
-            raise HTTPException(500, f"第{ch['chapter']}章向量化失败: {e}")
+            raise HTTPException(500, f"第{ch['chapter']}章第{ch['chunk']}块向量化失败: {e}")
         embeddings.append(emb)
 
     # Index into Qdrant
-    count = indexer.index_chapters(doc_id, doc_title, chapters, embeddings)
+    count = indexer.index_chapters(doc_id, doc_title, chunks, embeddings)
 
     return {
         "document_id": doc_id,
         "title": doc_title,
         "total_chapters": len(chapters),
+        "total_chunks": len(chunks),
         "indexed": count,
     }
 
