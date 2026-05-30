@@ -9,6 +9,22 @@ services:
       - webui-data:/app/backend/data
     restart: unless-stopped
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: qdrant
@@ -25,12 +41,11 @@ services:
       - "18000:8000"
     depends_on:
       - qdrant
+      - ollama
     environment:
       - QDRANT_URL=http://qdrant:6333
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_BASE_URL=http://ollama:11434
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-    extra_hosts:
-      - host.docker.internal:host-gateway
     restart: unless-stopped
     volumes:
       - ./rag-api:/app
@@ -55,16 +70,16 @@ services:
       - "19000:8000"
     depends_on:
       - qdrant
+      - ollama
     environment:
       - QDRANT_URL=http://qdrant:6333
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_BASE_URL=http://ollama:11434
       - EMBEDDING_DIM=768
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - DEEPSEEK_MODEL=deepseek-v4-flash
-    extra_hosts:
-      - host.docker.internal:host-gateway
     restart: unless-stopped
 
 volumes:
   webui-data:
   qdrant-data:
+  ollama-data:
