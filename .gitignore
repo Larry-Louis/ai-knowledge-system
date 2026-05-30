@@ -5,3 +5,5 @@ qdrant_storage/
 .env
 venv/
 .venv/
+.reasonix/
+**/test_*.txt
