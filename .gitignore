@@ -7,3 +7,6 @@ venv/
 .venv/
 .reasonix/
 **/test_*.txt
+*.db
+*.db-shm
+*.db-wal
