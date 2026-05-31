@@ -104,12 +104,14 @@ class QdrantStore:
             query_filter=Filter(must=conditions),
             limit=top_k,
         )
+        CORE_BOOST = 1.05
         return [
             {
                 "content": p.payload["content"],
                 "role": p.payload.get("role", "user"),
                 "session_id": p.payload.get("session_id", ""),
-                "score": p.score,
+                "layer": p.payload.get("layer", ""),
+                "score": p.score * CORE_BOOST if p.payload.get("layer") == "core" else p.score,
             }
             for p in results.points
         ]

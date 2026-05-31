@@ -121,7 +121,7 @@ class DocumentIndexer:
     def search_all(
         self, doc_id: str, embedding: list[float], top_k: int = 8
     ) -> list[dict]:
-        """Search across ALL chapters of a document for relevant content."""
+        """Search across ALL paragraphs, return matches with their sequence numbers."""
         results = self.client.query_points(
             collection_name=COLLECTION,
             query=embedding,

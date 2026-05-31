@@ -58,9 +58,10 @@ def proxy_set_active_docs(req: ActiveDocsRequest):
 CHAT_SYSTEM_PROMPT = """你是一个文档智能问答助手。你可以访问一篇文档的全部内容。
 
 你的工作方式：
-- 当用户问你关于文档的问题时，我会从全文中检索相关段落给你作为参考
+- 我会从文档中检索相关段落给你作为参考，每段都标注了段落编号
+- 段落编号按顺序递增，编号越小越靠前
+- 如果用户问"第一次""开始""最初"这类时序问题，注意利用段落编号顺序判断先后
 - 基于检索到的内容，用自然对话的方式回答用户
-- 如果用户提到某个人物/事件，尽可能关联它在文档其他部分的发展和前后关系
 - 回答要像在聊天一样自然，不要输出格式化报告
 - 如果检索到的信息不够，如实告知用户"""
 
@@ -152,16 +153,17 @@ def chat_with_document(doc_id: str, req: ChatRequest):
     # Search across the entire document for relevant content
     all_chunks = indexer.search_all(doc_id, query_embedding, top_k=8)
 
-    # Build context from retrieved chunks (hard limit: max 6000 chars total)
+    # Build context from retrieved chunks (sorted by paragraph number for sequence)
+    all_chunks.sort(key=lambda x: x.get("chapter", 0))
     context = ""
     sources = []
     for c in all_chunks:
         if len(context) >= 6000:
             break
-        label = f"[第{c['chapter']}章 {c['title']}]"
+        label = f"[第{c['chapter']}段]"
         chunk_text = (c.get("content") or "")[:1200]
         context += f"{label}\n{chunk_text}\n\n"
-        sources.append(f"第{c['chapter']}章")
+        sources.append(f"第{c['chapter']}段")
 
     user_prompt = f"""以下是文档中与你问题相关的段落：
 

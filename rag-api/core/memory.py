@@ -51,6 +51,7 @@ class MemoryManager:
         self.qdrant = QdrantStore()
         self.sessions = SessionStore()
         self._model_override = None
+        self._last_session_id = None
         self.last_prompt = None
 
     def _derive_session_id(self, messages: list) -> str:
@@ -82,13 +83,21 @@ class MemoryManager:
         if active_role != "core":
             search_layers.append(active_role)
 
+        is_new_session = (session_id != self._last_session_id)
+        self._last_session_id = session_id
+
         related = self.qdrant.search_memories(
             embedding, session_id, Config.MEMORY_TOP_K
         )
         global_memories = self.qdrant.search_global_memories(embedding, top_k=6, layers=search_layers)
-        recent_global = self.qdrant.get_recent_global_memories(
-            exclude_session=session_id, limit=6, layers=search_layers
-        )
+
+        # 新会话时带 2 条最近跨会话记忆作为预热，同会话时跳过（因为 messages 已有完整历史）
+        recent_global = []
+        if is_new_session:
+            recent_global = self.qdrant.get_recent_global_memories(
+                exclude_session=session_id, limit=2, layers=search_layers
+            )
+
         all_memories = _merge_memories(related, global_memories + recent_global)
         summary = self.qdrant.get_summary()
 
