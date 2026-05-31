@@ -87,10 +87,16 @@ def _worker():
 
 def _store_mu(content: str, mu_type: str, layer_type: str, confidence: float,
                turn_data: dict, qdrant: QdrantStore):
-    """Store a single Memory Unit to Qdrant."""
-    try:
-        embedding = EmbeddingService.embed(content)
-    except Exception:
+    """Normalize, dedup, then store a Memory Unit."""
+    content = _normalize(content)
+    if not content:
+        return
+
+    # Dedup check (also returns embedding to avoid double-embed)
+    is_dup, embedding = _is_duplicate(content, qdrant)
+    if is_dup:
+        return
+    if embedding is None:
         embedding = [0.0] * Config.EMBEDDING_DIM
 
     from qdrant_client.models import PointStruct
@@ -145,7 +151,7 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
 
 # ─── SLM Config ────────────────────────────────────────────────
 
-SLM_PROMPT_VERSION = "v2.0"
+SLM_PROMPT_VERSION = "v2.1"
 
 SLM_PROMPT = """[Version: {version}]
 你是一个记忆过滤器。判断以下对话内容是否值得长期记忆。
@@ -213,6 +219,72 @@ def _safe_parse_json(text: str) -> dict | None:
     if '"keep"' in text:
         return {"keep": 'true' in lower, "type": "fact", "confidence": 0.5}
     return None
+
+
+# ─── Normalizer ────────────────────────────────────────────────
+
+_TERM_MAP = {
+    "autosar": "AUTOSAR",
+    "rag": "RAG",
+    "ai": "AI",
+    "llm": "LLM",
+    "api": "API",
+    "slm": "SLM",
+    "qdrant": "Qdrant",
+    "ollama": "Ollama",
+    "deepseek": "DeepSeek",
+    "python": "Python",
+    "java": "Java",
+    "docker": "Docker",
+    "kubernetes": "Kubernetes",
+    "sqlite": "SQLite",
+}
+
+
+def _normalize(text: str) -> str:
+    """Normalize MU text: unify subject, standardize terms, dedent."""
+    text = text.strip()
+    if not text:
+        return text
+    # Subject unification: sentence-starting 我 → 用户
+    lines = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if line.startswith("我") and not line.startswith("我们"):
+            line = "用户" + line[1:]
+        elif line.startswith("我们"):
+            line = "用户" + line[2:]
+        # Term normalization (case-insensitive)
+        for key, val in _TERM_MAP.items():
+            esc = re.escape(key)
+            line = re.sub(rf'(?i)(^|[^a-zA-Z]){esc}([^a-zA-Z]|$)', rf'\1{val}\2', line)
+        lines.append(line)
+    return "\n".join(lines)
+
+
+DEDUP_THRESHOLD = 0.90  # cosine similarity for dedup
+
+
+def _is_duplicate(content: str, qdrant: QdrantStore) -> tuple[bool, list[float] | None]:
+    """Check if similar MU exists. Returns (is_dup, embedding)."""
+    try:
+        embedding = EmbeddingService.embed(content)
+    except Exception:
+        return False, None
+
+    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    results = qdrant.client.query_points(
+        collection_name=Config.QDRANT_MEMORY_COLLECTION,
+        query=embedding,
+        query_filter=Filter(must=[
+            FieldCondition(key="type", match=MatchValue(value="memory_unit")),
+        ]),
+        limit=5,
+    )
+    for p in results.points:
+        if p.score >= DEDUP_THRESHOLD:
+            return True, embedding
+    return False, embedding
 
 
 # ─── Memory Unit Extractor (Rule-based) ────────────────────────
