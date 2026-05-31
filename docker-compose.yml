@@ -4,7 +4,7 @@ services:
     image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
     ports:
-      - "4500:8080"
+      - "8080:8080"
     volumes:
       - webui-data:/app/backend/data
     restart: unless-stopped
@@ -12,8 +12,9 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
-    ports:
-      - "11434:11434"
+    # 容器间通信走内部网络，不需要 host 端口映射
+    expose:
+      - "11434"
     volumes:
       - ollama-data:/root/.ollama
     restart: unless-stopped
