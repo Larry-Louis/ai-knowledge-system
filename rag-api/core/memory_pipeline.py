@@ -97,7 +97,7 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
     # Build a Memory Unit (MU)
     mu_content = result.get("summary") or turn_data.get("user", "")
     mu_type = result.get("type", "fact")
-    mu_type = result.get("type", "fact")
+    layer_type = result.get("layer_type", "semantic")
     confidence = result.get("confidence", 0.5)
 
     # Embed and store
@@ -118,6 +118,8 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
                     "content": mu_content,
                     "type": "memory_unit",
                     "mu_type": mu_type,
+                    "layer_type": layer_type,
+                    "slm_version": SLM_PROMPT_VERSION,
                     "confidence": confidence,
                     "layer": turn_data.get("layer", "general"),
                     "session_id": turn_data.get("session_id", ""),
@@ -131,24 +133,34 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
     )
 
 
-# ─── SLM Validator (MVP) ───────────────────────────────────────
+# ─── SLM Config ────────────────────────────────────────────────
 
-SLM_PROMPT = """你是一个记忆过滤器。判断以下对话内容是否值得长期记忆。
-只输出 JSON，不要输出任何其他文字。
+SLM_PROMPT_VERSION = "v1.0"
 
-值得记忆的内容包括：
-- 用户的偏好、习惯、兴趣
-- 项目的关键信息、决策、状态
-- 重要的事实陈述
-- 需要后续跟踪的任务或待办
+SLM_PROMPT = """[Version: {version}]
+你是一个记忆过滤器。判断以下对话内容是否值得长期记忆。
+只输出纯 JSON，不要任何其他文字。
 
-不值得记忆的内容包括：
-- 纯闲聊、打招呼
-- 不包含实质信息的确认性回复
-- 模糊的、无法独立理解的片段
+值得记忆（keep=true）的内容：
+- 用户的偏好、习惯、兴趣（type=preference）
+- 项目的关键信息、决策、状态（type=project）
+- 重要的事实陈述（type=fact）
+- 需要后续跟踪的任务或待办（type=task）
+- 用户告知的个人信息（type=preference）
 
-返回 JSON 格式（只有 JSON，不要其他文字）：
-{{"keep": true/false, "type": "preference | fact | project | task | noise", "confidence": 0.0-1.0, "summary": "简短总结"}}
+不值得记忆（keep=false）的内容：
+- 纯闲聊、打招呼（type=noise）
+- 确认性回复、无实质信息（type=noise）
+
+输出格式：
+{{"keep": true, "type": "preference", "confidence": 0.85, "summary": "用户喜欢Python"}}
+{{"keep": false, "type": "noise", "confidence": 0.3, "summary": ""}}
+
+置信度指南：
+- 0.9+：非常确定这条值得记忆
+- 0.6-0.9：可能值得
+- 0.3-0.6：不确定
+- 低于0.3：很可能不值得
 
 对话内容：
 {turn}"""
@@ -190,16 +202,46 @@ def _safe_parse_json(text: str) -> dict | None:
     return None
 
 
+# ─── Type Mapping ──────────────────────────────────────────────
+
+MU_TYPE_MAP = {
+    "preference": "semantic",
+    "fact": "semantic",
+    "project": "episodic",
+    "task": "episodic",
+    "noise": "drop",
+}
+
+CONFIDENCE_THRESHOLD = 0.3  # below this → drop
+
+
+def _classify_mu(result: dict) -> dict:
+    """Apply type mapping and confidence thresholds."""
+    mu_type = result.get("type", "noise")
+    confidence = max(0.0, min(1.0, result.get("confidence", 0.5)))
+    keep = result.get("keep", False) and confidence >= CONFIDENCE_THRESHOLD
+
+    return {
+        "keep": keep,
+        "type": mu_type,
+        "layer_type": MU_TYPE_MAP.get(mu_type, "semantic"),
+        "confidence": confidence,
+        "summary": (result.get("summary") or "").strip(),
+    }
+
+
 def _slm_validate(turn_text: str) -> dict:
-    """Call DeepSeek as SLM to validate a conversation turn."""
+    """Call DeepSeek as SLM, then apply classification rules."""
     api_key = Config.DEEPSEEK_API_KEY
     if not api_key:
-        return {"keep": False, "type": "noise", "confidence": 0.0}
+        return {"keep": False, "type": "noise", "confidence": 0.0, "layer_type": "drop"}
 
     payload = {
         "model": Config.DEEPSEEK_MODEL,
         "messages": [
-            {"role": "user", "content": SLM_PROMPT.format(turn=turn_text[:1500])}
+            {"role": "user", "content": SLM_PROMPT.format(
+                version=SLM_PROMPT_VERSION, turn=turn_text[:1500]
+            )}
         ],
         "temperature": 0.1,
         "max_tokens": 300,
@@ -216,14 +258,14 @@ def _slm_validate(turn_text: str) -> dict:
         )
         resp.raise_for_status()
         text = resp.json()["choices"][0]["message"]["content"].strip()
-        result = _safe_parse_json(text)
-        if result is None:
+        raw = _safe_parse_json(text)
+        if raw is None:
             print(f"[SLMValidator] Parse failed, raw: {text[:200]}")
-            return {"keep": False, "type": "noise", "confidence": 0.0}
-        return result
+            return {"keep": False, "type": "noise", "confidence": 0.0, "layer_type": "drop"}
+        return _classify_mu(raw)
     except Exception as e:
         print(f"[SLMValidator] Error: {e}")
-        return {"keep": False, "type": "noise", "confidence": 0.0}
+        return {"keep": False, "type": "noise", "confidence": 0.0, "layer_type": "drop"}
 
 
 # ─── Start background worker ───────────────────────────────────
