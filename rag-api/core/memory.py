@@ -4,6 +4,7 @@ import hashlib
 
 from core.config import Config
 from core.state import get_active_role
+from core.memory_pipeline import MemoryEvent, submit_turn
 
 
 def _is_auto_task(content: str) -> bool:
@@ -149,6 +150,15 @@ class MemoryManager:
         if not _is_auto_task(response):
             resp_embedding = EmbeddingService.embed(response)
             self.qdrant.upsert_memory(session_id, "assistant", response, resp_embedding, layer=active_role)
+
+        # Stage 0: Submit Turn to async memory pipeline
+        event = MemoryEvent(
+            user_msg=last_user_msg,
+            assistant_msg=response,
+            session_id=session_id,
+            layer=active_role,
+        )
+        submit_turn(event)
 
         msg_count = self.sessions.get_message_count(session_id)
         if msg_count > 0 and msg_count % (Config.SUMMARY_INTERVAL * 2) == 0:

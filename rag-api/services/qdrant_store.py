@@ -23,7 +23,15 @@ class QdrantStore:
         self._ensure_collection()
 
     def _ensure_collection(self):
-        collections = [c.name for c in self.client.get_collections().collections]
+        import time
+        for attempt in range(30):
+            try:
+                collections = [c.name for c in self.client.get_collections().collections]
+                break
+            except Exception:
+                if attempt == 29:
+                    raise
+                time.sleep(1)
         if self.collection not in collections:
             self.client.create_collection(
                 collection_name=self.collection,

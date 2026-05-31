@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from api.chat import router as chat_router
 from core.config import Config
 from core.state import set_active_doc_ids, get_active_doc_ids, get_active_role, set_active_role, get_core_write_mode
+
+
 from services.embedding import EmbeddingService
 
 
