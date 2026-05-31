@@ -1,18 +1,22 @@
-"""Stage 0: MVP Memory Pipeline — Turn Builder + Async Queue + SLM Validator + Qdrant Write.
+"""Stage 1: Persistent Queue + Retry + Worker.
 
-Status: MVP, quality not guaranteed yet.
+Key changes from Stage 0:
+- SQLite-backed queue (survives restarts)
+- Recovery mechanism (reprocess stuck items after crash)
+- Retry with backoff (max 3 retries)
+- Cleanup old completed items
 """
 import json
 import time
 import uuid
 import threading
-import queue as pyqueue
 
 import httpx
 
 from core.config import Config
 from services.embedding import EmbeddingService
 from services.qdrant_store import QdrantStore
+from services.persistent_queue import PersistentQueue
 
 
 # ─── Memory Event ──────────────────────────────────────────────
@@ -39,43 +43,60 @@ class MemoryEvent:
         }
 
 
-# ─── Queue ─────────────────────────────────────────────────────
+# ─── Queue (Persistent) ────────────────────────────────────────
 
-_memory_queue: pyqueue.Queue = pyqueue.Queue()
+_queue = PersistentQueue()
 
 
 def submit_turn(event: MemoryEvent):
-    """Submit a MemoryEvent to the async pipeline."""
-    _memory_queue.put(event)
+    """Submit a MemoryEvent to the persistent queue."""
+    _queue.enqueue(event.to_dict())
 
 
 # ─── Background Worker ─────────────────────────────────────────
 
 def _worker():
     qdrant = QdrantStore()
+    # Recover any items stuck from a previous crash
+    _queue.recover_stale(timeout=30)
+    last_cleanup = time.time()
+
     while True:
-        try:
-            event: MemoryEvent = _memory_queue.get(timeout=1)
-        except pyqueue.Empty:
+        # Periodic cleanup (every 10 minutes)
+        now = time.time()
+        if now - last_cleanup > 600:
+            _queue.cleanup(max_age=86400)
+            last_cleanup = now
+
+        # Dequeue next item (non-blocking, 2s poll)
+        items = _queue.dequeue(batch_size=1)
+        if not items:
+            time.sleep(2)
             continue
 
+        item = items[0]
+        turn_data = item["data"]
+
         try:
-            _process_event(event, qdrant)
+            _process_turn(turn_data, qdrant)
+            _queue.mark_done(item["id"])
         except Exception as e:
-            print(f"[MemoryPipeline] Error processing turn {event.turn_id}: {e}")
+            _queue.mark_failed(item["id"], str(e))
+            print(f"[MemoryPipeline] Failed turn {turn_data.get('turn_id','?')}: {e}")
 
 
-def _process_event(event: MemoryEvent, qdrant: QdrantStore):
-    """Validate, extract, and store a MemoryEvent."""
-    turn_text = f"用户: {event.user}\nAI助手: {event.assistant}"
+def _process_turn(turn_data: dict, qdrant: QdrantStore):
+    """Validate, extract, and store a Turn as Memory Unit."""
+    turn_text = f"用户: {turn_data.get('user','')}\nAI助手: {turn_data.get('assistant','')}"
 
     # SLM Validator
     result = _slm_validate(turn_text)
     if not result.get("keep", False):
         return  # drop silently
 
-    # Build a Memory Unit (MU) — Stage 0: just use the validated turn text
-    mu_content = result.get("summary") or event.user
+    # Build a Memory Unit (MU)
+    mu_content = result.get("summary") or turn_data.get("user", "")
+    mu_type = result.get("type", "fact")
     mu_type = result.get("type", "fact")
     confidence = result.get("confidence", 0.5)
 
@@ -98,12 +119,12 @@ def _process_event(event: MemoryEvent, qdrant: QdrantStore):
                     "type": "memory_unit",
                     "mu_type": mu_type,
                     "confidence": confidence,
-                    "layer": event.layer,
-                    "session_id": event.session_id,
-                    "turn_id": event.turn_id,
-                    "source_user": event.user[:200],
-                    "source_assistant": event.assistant[:200],
-                    "timestamp": event.timestamp,
+                    "layer": turn_data.get("layer", "general"),
+                    "session_id": turn_data.get("session_id", ""),
+                    "turn_id": turn_data.get("turn_id", ""),
+                    "source_user": (turn_data.get("user") or "")[:200],
+                    "source_assistant": (turn_data.get("assistant") or "")[:200],
+                    "timestamp": turn_data.get("timestamp", time.time()),
                 },
             )
         ],
