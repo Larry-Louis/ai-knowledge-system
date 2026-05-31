@@ -115,19 +115,11 @@ def _store_mu(content: str, mu_type: str, layer_type: str, confidence: float,
             old = p.payload.get("content", "")
             old_polarity = _detect_polarity(old)
             if old_polarity != 0 and old_polarity != new_polarity:
-                # Conflict! Resolve via LLM
-                result = _resolve_conflict(old, content)
-                if result.get("correct") == "A":
-                    return  # keep old, drop new
-                elif result.get("correct") == "B":
-                    # Delete old, store new
-                    qdrant.client.delete(
-                        collection_name=Config.QDRANT_MEMORY_COLLECTION,
-                        points_selector=[p.id],
-                    )
-                merged = result.get("merged", "").strip()
-                if merged:
-                    content = merged
+                # Conflict! Newest overrides old
+                qdrant.client.delete(
+                    collection_name=Config.QDRANT_MEMORY_COLLECTION,
+                    points_selector=[p.id],
+                )
                 break
 
     if embedding is None:
@@ -299,7 +291,7 @@ def _normalize(text: str) -> str:
 
 
 DEDUP_THRESHOLD = 0.90
-CONFLICT_THRESHOLD = 0.85  # similarity for conflict detection
+CONFLICT_THRESHOLD = 0.80  # similarity for conflict detection → override with newest
 
 # Simplified polarity keywords for conflict detection
 _POSITIVE = {"喜欢", "爱", "可以", "会", "要", "想", "支持", "推荐"}
@@ -322,46 +314,7 @@ def _detect_polarity(text: str) -> int:
     return 1 if pos_count > neg_count else (-1 if neg_count > pos_count else 0)
 
 
-CONFLICT_RESOLUTION_PROMPT = """你是一个记忆冲突仲裁者。以下是两条关于同一主题但矛盾的记忆：
 
-记忆A（旧）: {old}
-记忆B（新）: {new}
-
-请判断哪条更符合当前实际情况。只输出 JSON：
-{{"correct": "A", "reason": "简要说明", "merged": "如果需要合并则写这里，否则为空"}}
-或
-{{"correct": "B", "reason": "简要说明", "merged": ""}}"""
-
-
-def _resolve_conflict(old_content: str, new_content: str) -> dict:
-    """Call LLM to resolve a memory conflict."""
-    api_key = Config.DEEPSEEK_API_KEY
-    if not api_key:
-        return {"correct": "B", "reason": "No LLM available, keep new", "merged": ""}
-
-    payload = {
-        "model": Config.DEEPSEEK_MODEL,
-        "messages": [{"role": "user", "content": CONFLICT_RESOLUTION_PROMPT.format(
-            old=old_content[:300], new=new_content[:300]
-        )}],
-        "temperature": 0.1,
-        "max_tokens": 200,
-    }
-    try:
-        resp = httpx.post(
-            f"{Config.DEEPSEEK_BASE_URL}/chat/completions",
-            json=payload,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"].strip()
-        result = _safe_parse_json(text)
-        if isinstance(result, dict) and result.get("correct") in ("A", "B"):
-            return result
-    except Exception as e:
-        print(f"[ConflictResolver] Error: {e}")
-    return {"correct": "B", "reason": "Fallback: keep new", "merged": ""}
 
 
 def _is_duplicate(content: str, qdrant: QdrantStore) -> tuple[bool, list[float] | None]:
