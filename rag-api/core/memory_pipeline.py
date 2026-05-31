@@ -87,15 +87,49 @@ def _worker():
 
 def _store_mu(content: str, mu_type: str, layer_type: str, confidence: float,
                turn_data: dict, qdrant: QdrantStore):
-    """Normalize, dedup, then store a Memory Unit."""
+    """Normalize, dedup, resolve conflict, then store a Memory Unit."""
     content = _normalize(content)
     if not content:
         return
 
-    # Dedup check (also returns embedding to avoid double-embed)
+    # Dedup check
     is_dup, embedding = _is_duplicate(content, qdrant)
     if is_dup:
         return
+
+    # Conflict detection + resolution
+    new_polarity = _detect_polarity(content)
+    if new_polarity != 0 and embedding:
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        similar = qdrant.client.query_points(
+            collection_name=Config.QDRANT_MEMORY_COLLECTION,
+            query=embedding,
+            query_filter=Filter(must=[
+                FieldCondition(key="type", match=MatchValue(value="memory_unit")),
+            ]),
+            limit=5,
+        )
+        for p in similar.points:
+            if p.score < CONFLICT_THRESHOLD:
+                continue
+            old = p.payload.get("content", "")
+            old_polarity = _detect_polarity(old)
+            if old_polarity != 0 and old_polarity != new_polarity:
+                # Conflict! Resolve via LLM
+                result = _resolve_conflict(old, content)
+                if result.get("correct") == "A":
+                    return  # keep old, drop new
+                elif result.get("correct") == "B":
+                    # Delete old, store new
+                    qdrant.client.delete(
+                        collection_name=Config.QDRANT_MEMORY_COLLECTION,
+                        points_selector=[p.id],
+                    )
+                merged = result.get("merged", "").strip()
+                if merged:
+                    content = merged
+                break
+
     if embedding is None:
         embedding = [0.0] * Config.EMBEDDING_DIM
 
@@ -151,7 +185,7 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
 
 # ─── SLM Config ────────────────────────────────────────────────
 
-SLM_PROMPT_VERSION = "v2.1"
+SLM_PROMPT_VERSION = "v2.2"
 
 SLM_PROMPT = """[Version: {version}]
 你是一个记忆过滤器。判断以下对话内容是否值得长期记忆。
@@ -262,7 +296,72 @@ def _normalize(text: str) -> str:
     return "\n".join(lines)
 
 
-DEDUP_THRESHOLD = 0.90  # cosine similarity for dedup
+DEDUP_THRESHOLD = 0.90
+CONFLICT_THRESHOLD = 0.85  # similarity for conflict detection
+
+# Simplified polarity keywords for conflict detection
+_POSITIVE = {"喜欢", "爱", "好", "可以", "会", "是", "要", "想", "支持", "推荐"}
+_NEGATIVE = {"不喜欢", "不爱", "不好", "不可以", "不会", "不是", "不要", "不想",
+             "讨厌", "恨", "反对", "拒绝", "无法", "不能"}
+
+
+def _detect_polarity(text: str) -> int:
+    """Rough polarity: 1 = positive, -1 = negative, 0 = neutral."""
+    text_lower = text.lower()
+    score = 0
+    for w in _POSITIVE:
+        if w in text_lower:
+            score += 1
+    for w in _NEGATIVE:
+        if w in text_lower:
+            score -= 1
+    if score > 0:
+        return 1
+    if score < 0:
+        return -1
+    return 0
+
+
+CONFLICT_RESOLUTION_PROMPT = """你是一个记忆冲突仲裁者。以下是两条关于同一主题但矛盾的记忆：
+
+记忆A（旧）: {old}
+记忆B（新）: {new}
+
+请判断哪条更符合当前实际情况。只输出 JSON：
+{{"correct": "A", "reason": "简要说明", "merged": "如果需要合并则写这里，否则为空"}}
+或
+{{"correct": "B", "reason": "简要说明", "merged": ""}}"""
+
+
+def _resolve_conflict(old_content: str, new_content: str) -> dict:
+    """Call LLM to resolve a memory conflict."""
+    api_key = Config.DEEPSEEK_API_KEY
+    if not api_key:
+        return {"correct": "B", "reason": "No LLM available, keep new", "merged": ""}
+
+    payload = {
+        "model": Config.DEEPSEEK_MODEL,
+        "messages": [{"role": "user", "content": CONFLICT_RESOLUTION_PROMPT.format(
+            old=old_content[:300], new=new_content[:300]
+        )}],
+        "temperature": 0.1,
+        "max_tokens": 200,
+    }
+    try:
+        resp = httpx.post(
+            f"{Config.DEEPSEEK_BASE_URL}/chat/completions",
+            json=payload,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        text = resp.json()["choices"][0]["message"]["content"].strip()
+        result = _safe_parse_json(text)
+        if isinstance(result, dict) and result.get("correct") in ("A", "B"):
+            return result
+    except Exception as e:
+        print(f"[ConflictResolver] Error: {e}")
+    return {"correct": "B", "reason": "Fallback: keep new", "merged": ""}
 
 
 def _is_duplicate(content: str, qdrant: QdrantStore) -> tuple[bool, list[float] | None]:
