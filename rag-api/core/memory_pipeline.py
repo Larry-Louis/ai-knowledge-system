@@ -169,8 +169,10 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
         return  # drop silently
 
     # Extract MU(s) — SLM summaries first, then rule-based fallback
-    summaries = result.get("summaries", [result.get("summary", "")])
-    summaries = [s.strip() for s in summaries if s and s.strip()]
+    summaries = result.get("summaries") or []
+    if not summaries:
+        s = (result.get("summary") or "").strip()
+        summaries = [s] if s else []
     if not summaries:
         fallback = _extract_mus(turn_text, turn_data.get("user", ""))
         summaries = [fallback[0]] if fallback else [turn_data.get("user", "")]
@@ -238,7 +240,7 @@ def _safe_parse_json(text: str) -> dict | None:
     except json.JSONDecodeError:
         pass
     # Try to find {...} in the string
-    m = re.search(r'\{.*\}', text, re.DOTALL)
+    m = re.search(r'\{.*?\}', text, re.DOTALL)
     if m:
         try:
             return json.loads(m.group())
@@ -300,26 +302,24 @@ DEDUP_THRESHOLD = 0.90
 CONFLICT_THRESHOLD = 0.85  # similarity for conflict detection
 
 # Simplified polarity keywords for conflict detection
-_POSITIVE = {"喜欢", "爱", "好", "可以", "会", "是", "要", "想", "支持", "推荐"}
+_POSITIVE = {"喜欢", "爱", "可以", "会", "要", "想", "支持", "推荐"}
 _NEGATIVE = {"不喜欢", "不爱", "不好", "不可以", "不会", "不是", "不要", "不想",
              "讨厌", "恨", "反对", "拒绝", "无法", "不能"}
 
 
 def _detect_polarity(text: str) -> int:
-    """Rough polarity: 1 = positive, -1 = negative, 0 = neutral."""
+    """Rough polarity: 1 = positive, -1 = negative, 0 = neutral.
+    Negative checked first. Pure count-based to avoid substring conflicts."""
     text_lower = text.lower()
-    score = 0
-    for w in _POSITIVE:
-        if w in text_lower:
-            score += 1
-    for w in _NEGATIVE:
-        if w in text_lower:
-            score -= 1
-    if score > 0:
-        return 1
-    if score < 0:
-        return -1
-    return 0
+    pos_count = sum(text_lower.count(w) for w in _POSITIVE)
+    neg_count = sum(text_lower.count(w) for w in _NEGATIVE)
+    # Filter out pos matches that are substrings of neg matches
+    for nw in _NEGATIVE:
+        for pw in _POSITIVE:
+            if pw in nw:  # e.g. '喜欢' in '不喜欢'
+                overlap = text_lower.count(nw)
+                pos_count = max(0, pos_count - overlap)
+    return 1 if pos_count > neg_count else (-1 if neg_count > pos_count else 0)
 
 
 CONFLICT_RESOLUTION_PROMPT = """你是一个记忆冲突仲裁者。以下是两条关于同一主题但矛盾的记忆：
