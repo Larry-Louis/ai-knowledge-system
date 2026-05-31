@@ -85,7 +85,8 @@ def _worker():
             print(f"[MemoryPipeline] Failed turn {turn_data.get('turn_id','?')}: {e}")
 
 
-def _store_mu(content: str, mu_type: str, layer_type: str, confidence: float,
+def _store_mu(content: str, mu_type: str, mu_tag: str, layer_type: str,
+               importance: float, confidence: float, store_priority: str,
                turn_data: dict, qdrant: QdrantStore):
     """Normalize, dedup, resolve conflict, then store a Memory Unit."""
     content = _normalize(content)
@@ -136,9 +137,12 @@ def _store_mu(content: str, mu_type: str, layer_type: str, confidence: float,
                     "content": content,
                     "type": "memory_unit",
                     "mu_type": mu_type,
+                    "mu_tag": mu_tag,
                     "layer_type": layer_type,
                     "slm_version": SLM_PROMPT_VERSION,
+                    "importance": importance,
                     "confidence": confidence,
+                    "store_priority": store_priority,
                     "layer": turn_data.get("layer", "general"),
                     "session_id": turn_data.get("session_id", ""),
                     "turn_id": turn_data.get("turn_id", ""),
@@ -168,46 +172,76 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
     if not summaries:
         fallback = _extract_mus(turn_text, turn_data.get("user", ""))
         summaries = [fallback[0]] if fallback else [turn_data.get("user", "")]
-    mu_type = result.get("type", "fact")
+    mu_type = result.get("type", "ENTITY")
+    mu_tag = result.get("tag", "noise")
     layer_type = result.get("layer_type", "semantic")
-    confidence = result.get("confidence", 0.5)
+    importance = result.get("importance", 0.0)
+    confidence = result.get("confidence", 0.0)
+    store_priority = result.get("store_priority", "drop")
 
     for s in summaries[:3]:  # max 3 MUs per turn
         if s.strip():
-            _store_mu(s.strip(), mu_type, layer_type, confidence, turn_data, qdrant)
+            _store_mu(s.strip(), mu_type, mu_tag, layer_type, importance, confidence, store_priority, turn_data, qdrant)
 
 
 # ─── SLM Config ────────────────────────────────────────────────
 
-SLM_PROMPT_VERSION = "v2.2"
+SLM_PROMPT_VERSION = "v3.0"
 
 SLM_PROMPT = """[Version: {version}]
 你是一个记忆过滤器。判断以下对话内容是否值得长期记忆。
 只输出纯 JSON，不要任何其他文字。
 
-值得记忆（keep=true）的内容：
-- 用户的偏好、习惯、兴趣（type=preference）
-- 项目的关键信息、决策、状态（type=project）
-- 重要的事实陈述（type=fact）
-- 需要后续跟踪的任务或待办（type=task）
-- 用户告知的个人信息（type=preference）
+# 任务目标
+你需要为每条对话生成：
+1. 是否值得进入记忆系统（keep）
+2. 重要性评分（importance）
+3. 置信度评分（confidence）
+4. 类型（type）
+5. 粗粒度语义标签（tags，可以多个）
+6. 简短摘要（summary）
 
-不值得记忆（keep=false）的内容：
-- 纯闲聊、打招呼（type=noise）
-- 确认性回复、无实质信息（type=noise）
+# 重要性评分规则
+importance ∈ [0,1]
+- 0.9+：长期核心信息（职业/项目核心决策）
+- 0.7~0.9：重要偏好/关键项目状态
+- 0.4~0.7：一般信息
+- <0.4：低价值或噪音
 
-如果一条对话包含多个独立信息点，用 summaries 数组输出多条。
-
-输出格式（单条）：
-{{"keep": true, "type": "preference", "confidence": 0.85, "summary": "用户喜欢Python", "summaries": []}}
-输出格式（多条）：
-{{"keep": true, "type": "fact", "confidence": 0.8, "summary": "", "summaries": ["用户技术栈是Python", "用户从事AI开发"]}}
-
-置信度指南：
+# 置信度指南
 - 0.9+：非常确定
 - 0.6-0.9：可能值得
 - 0.3-0.6：不确定
 - 低于0.3：很可能不值得
+
+# 类型
+- ENTITY（描述某个东西本身）
+- RELATION（实体之间的联系）
+- EVENT（发生过什么）
+- TASK（未来要发生但尚未完成）
+
+# 标签体系
+tags 只允许从以下选择：
+值得记忆（keep=true）的内容：
+- identity（用户身份信息）
+- preference（用户的偏好/习惯/兴趣）
+- project（项目或者其他对象的相关信息）
+- fact（客观事实）
+- task（待办/未来行动）
+- knowledge（用户总结出的经验/方法）
+不值得记忆（keep=false）的内容：
+- noise（无意义内容）
+
+# keep规则
+- importance >= 0.4 → keep=true
+- 否则 keep=false
+
+如果一条对话包含多个独立信息点，用 summaries 数组输出多条。
+
+输出格式（单条）：
+{{"keep": true, "importance": 0.95, "confidence": 0.85, "type": "RELATION", "tag": "prefence", "summary": "用户喜欢Python", "summaries": []}}
+输出格式（多条）：
+{{"keep": true, "importance": 0.65, "confidence": 0.75, "type": "ENTITY", "tag": "identity", "summaries": ["用户技术栈是Python", "用户从事AI开发"]}}
 
 对话内容：
 {turn}"""
@@ -354,22 +388,36 @@ def _extract_mus(turn_text: str, user_msg: str) -> list[str]:
 
 # ─── Type Mapping ──────────────────────────────────────────────
 
-MU_TYPE_MAP = {
-    "preference": "semantic",
-    "fact": "semantic",
-    "project": "episodic",
-    "task": "episodic",
-    "noise": "drop",
+TYPE_LAYER_MAP = {
+    "ENTITY": "semantic",
+    "RELATION": "semantic",
+    "EVENT": "episodic",
+    "TASK": "episodic",
 }
 
-CONFIDENCE_THRESHOLD = 0.3  # below this → drop
+IMPORTANCE_KEEP = 0.4      # ≥0.4 → keep
+IMPORTANCE_HIGH = 0.7      # ≥0.7 → 高价值
+CONFIDENCE_HIGH = 0.7      # ≥0.7 → 高置信度
 
 
 def _classify_mu(result: dict) -> dict:
-    """Apply type mapping and confidence thresholds."""
-    mu_type = result.get("type", "noise")
-    confidence = max(0.0, min(1.0, result.get("confidence", 0.5)))
-    keep = result.get("keep", False) and confidence >= CONFIDENCE_THRESHOLD
+    """Apply importance-confidence decision matrix."""
+    importance = max(0.0, min(1.0, result.get("importance", 0.0)))
+    confidence = max(0.0, min(1.0, result.get("confidence", 0.0)))
+    keep = importance >= IMPORTANCE_KEEP
+
+    # Decision matrix for stored items
+    if keep and importance >= IMPORTANCE_HIGH and confidence >= CONFIDENCE_HIGH:
+        store_priority = "golden"       # 黄金：直接入库
+    elif keep and importance >= IMPORTANCE_HIGH:
+        store_priority = "review"       # 风险：存但需复核
+    elif keep:
+        store_priority = "low"          # 低优先：存但不保证召回
+    else:
+        store_priority = "drop"
+
+    mu_type = result.get("type", "ENTITY")
+    tag = result.get("tag", "noise")
 
     raw_summaries = result.get("summaries", [])
     if isinstance(raw_summaries, list) and len(raw_summaries) > 0:
@@ -379,10 +427,13 @@ def _classify_mu(result: dict) -> dict:
         summaries = [s] if s else []
 
     return {
-        "keep": keep,
+        "keep": keep and store_priority != "drop",
         "type": mu_type,
-        "layer_type": MU_TYPE_MAP.get(mu_type, "semantic"),
+        "tag": tag,
+        "layer_type": TYPE_LAYER_MAP.get(mu_type, "semantic"),
+        "importance": importance,
         "confidence": confidence,
+        "store_priority": store_priority,
         "summary": summaries[0] if summaries else "",
         "summaries": summaries,
     }
