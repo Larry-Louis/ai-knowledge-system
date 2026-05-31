@@ -85,37 +85,23 @@ def _worker():
             print(f"[MemoryPipeline] Failed turn {turn_data.get('turn_id','?')}: {e}")
 
 
-def _process_turn(turn_data: dict, qdrant: QdrantStore):
-    """Validate, extract, and store a Turn as Memory Unit."""
-    turn_text = f"用户: {turn_data.get('user','')}\nAI助手: {turn_data.get('assistant','')}"
-
-    # SLM Validator
-    result = _slm_validate(turn_text)
-    if not result.get("keep", False):
-        return  # drop silently
-
-    # Build a Memory Unit (MU)
-    mu_content = result.get("summary") or turn_data.get("user", "")
-    mu_type = result.get("type", "fact")
-    layer_type = result.get("layer_type", "semantic")
-    confidence = result.get("confidence", 0.5)
-
-    # Embed and store
+def _store_mu(content: str, mu_type: str, layer_type: str, confidence: float,
+               turn_data: dict, qdrant: QdrantStore):
+    """Store a single Memory Unit to Qdrant."""
     try:
-        embedding = EmbeddingService.embed(mu_content)
+        embedding = EmbeddingService.embed(content)
     except Exception:
         embedding = [0.0] * Config.EMBEDDING_DIM
 
     from qdrant_client.models import PointStruct
-    point_id = str(uuid.uuid4())
     qdrant.client.upsert(
         collection_name=Config.QDRANT_MEMORY_COLLECTION,
         points=[
             PointStruct(
-                id=point_id,
+                id=str(uuid.uuid4()),
                 vector=embedding,
                 payload={
-                    "content": mu_content,
+                    "content": content,
                     "type": "memory_unit",
                     "mu_type": mu_type,
                     "layer_type": layer_type,
@@ -133,9 +119,33 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
     )
 
 
+def _process_turn(turn_data: dict, qdrant: QdrantStore):
+    """Validate, extract, and store a Turn as Memory Unit(s)."""
+    turn_text = f"用户: {turn_data.get('user','')}\nAI助手: {turn_data.get('assistant','')}"
+
+    # SLM Validator
+    result = _slm_validate(turn_text)
+    if not result.get("keep", False):
+        return  # drop silently
+
+    # Extract MU(s) — SLM summaries first, then rule-based fallback
+    summaries = result.get("summaries", [result.get("summary", "")])
+    summaries = [s.strip() for s in summaries if s and s.strip()]
+    if not summaries:
+        fallback = _extract_mus(turn_text, turn_data.get("user", ""))
+        summaries = [fallback[0]] if fallback else [turn_data.get("user", "")]
+    mu_type = result.get("type", "fact")
+    layer_type = result.get("layer_type", "semantic")
+    confidence = result.get("confidence", 0.5)
+
+    for s in summaries[:3]:  # max 3 MUs per turn
+        if s.strip():
+            _store_mu(s.strip(), mu_type, layer_type, confidence, turn_data, qdrant)
+
+
 # ─── SLM Config ────────────────────────────────────────────────
 
-SLM_PROMPT_VERSION = "v1.0"
+SLM_PROMPT_VERSION = "v2.0"
 
 SLM_PROMPT = """[Version: {version}]
 你是一个记忆过滤器。判断以下对话内容是否值得长期记忆。
@@ -152,12 +162,15 @@ SLM_PROMPT = """[Version: {version}]
 - 纯闲聊、打招呼（type=noise）
 - 确认性回复、无实质信息（type=noise）
 
-输出格式：
-{{"keep": true, "type": "preference", "confidence": 0.85, "summary": "用户喜欢Python"}}
-{{"keep": false, "type": "noise", "confidence": 0.3, "summary": ""}}
+如果一条对话包含多个独立信息点，用 summaries 数组输出多条。
+
+输出格式（单条）：
+{{"keep": true, "type": "preference", "confidence": 0.85, "summary": "用户喜欢Python", "summaries": []}}
+输出格式（多条）：
+{{"keep": true, "type": "fact", "confidence": 0.8, "summary": "", "summaries": ["用户技术栈是Python", "用户从事AI开发"]}}
 
 置信度指南：
-- 0.9+：非常确定这条值得记忆
+- 0.9+：非常确定
 - 0.6-0.9：可能值得
 - 0.3-0.6：不确定
 - 低于0.3：很可能不值得
@@ -202,6 +215,19 @@ def _safe_parse_json(text: str) -> dict | None:
     return None
 
 
+# ─── Memory Unit Extractor (Rule-based) ────────────────────────
+
+import re
+
+_SEPARATORS = re.compile(r'(?:并且|而且|还|以及|同时|，|。|；|、)')
+
+
+def _extract_mus(turn_text: str, user_msg: str) -> list[str]:
+    """Simple rule-based extraction: split by conjunctions/punctuation."""
+    candidates = [s.strip() for s in _SEPARATORS.split(user_msg) if len(s.strip()) > 4]
+    return candidates[:5] if candidates else [user_msg[:200]]
+
+
 # ─── Type Mapping ──────────────────────────────────────────────
 
 MU_TYPE_MAP = {
@@ -221,12 +247,20 @@ def _classify_mu(result: dict) -> dict:
     confidence = max(0.0, min(1.0, result.get("confidence", 0.5)))
     keep = result.get("keep", False) and confidence >= CONFIDENCE_THRESHOLD
 
+    raw_summaries = result.get("summaries", [])
+    if isinstance(raw_summaries, list) and len(raw_summaries) > 0:
+        summaries = [s.strip() for s in raw_summaries if s and s.strip()]
+    else:
+        s = (result.get("summary") or "").strip()
+        summaries = [s] if s else []
+
     return {
         "keep": keep,
         "type": mu_type,
         "layer_type": MU_TYPE_MAP.get(mu_type, "semantic"),
         "confidence": confidence,
-        "summary": (result.get("summary") or "").strip(),
+        "summary": summaries[0] if summaries else "",
+        "summaries": summaries,
     }
 
 
