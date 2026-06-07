@@ -2,10 +2,10 @@ import os
 
 
 class Config:
-    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "deepseek")
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
 
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "deepseek-r1:8b")
 
     DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
     DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")

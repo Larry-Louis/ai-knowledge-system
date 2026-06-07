@@ -1,1038 +1,365 @@
-# Phase 1 Production Spec — Memory Admission System (Updated v1.1)
+# Phase 1 Production Spec 鈥?Memory Admission System (v2.0)
 
-Date: 2026-05-31
+Date: 2026-06-06
+
+> 鏈枃妗ｆ弿杩板綋鍓?*瀹為檯瀹炵幇**鐨勫畬鏁村鐞嗛摼璺紝鍩轰簬浠ｇ爜鑰岄潪璁捐鏂囨。銆?
+---
+
+# 馃幆 绯荤粺鎬绘灦鏋勶細鍙岄樁娈佃蹇嗙閬?
+鏁翠釜绯荤粺鍒嗕负 **涓や釜闃舵** 澶勭悊璁板繂锛?
+| 闃舵 | 鍚嶇О | 鍚屾/寮傛 | 璺緞 | 鍐欏叆绫诲瀷 |
+|------|------|-----------|------|----------|
+| **闃舵 0** | 鍚屾璁板繂閫氶亾 | 鍚屾锛堣姹傝矾寰勫唴锛?| HTTP 鈫?LLM 鈫?Qdrant | `type=memory` |
+| **闃舵 1** | 寮傛璁板繂绠￠亾 | 寮傛锛堝悗鍙扮嚎绋嬶級 | SQLite Queue 鈫?SLM 鈫?Qdrant | `type=memory_unit` |
 
 ---
 
-# 🎯 Phase 1 总目标
+# 闃舵 0 鈥?鍚屾閾捐矾锛堣姹傝矾寰勶級
 
-构建一个：
+## 鏁版嵁娴佹€昏
 
-> 低成本 + 高信噪比 + 可异步扩展的 Memory Admission & Structuring System
-
-核心目标：
-
-1. 控制长期记忆成本（LLM/SLM）
-2. 提升记忆质量（减少噪声）
-3. 将对话结构化为 Memory Units
-4. 支撑后续 Insight / Episodic / Graph Memory 扩展
-
----
-
-# ❌ Phase 1 不做什么
-
-Phase 1 明确不包含：
-
-- 深度推理记忆（Insight Memory）
-- 自主反思机制
-- 知识图谱推导
-- 长链 reasoning memory
-- 实时 memory injection optimization
-
----
-
-# 🧠 核心设计原则
-
----
-
-## 1. 双通道记忆系统（关键更新）
-
-系统分为两个完全解耦通道：
-
-### 🟢 Channel A — Working Memory（实时上下文）
-
-```text
-Chat History Window → Direct LLM Prompt
-````
-
-特点：
-
-* 不经过 SLM
-* 不做结构化处理
-* 保证实时性
-* 允许噪声
-* 仅用于“当前对话连续性”
-
-用途：
-
-* 指代消解
-* 对话连贯
-* 即时上下文理解
-
----
-
-### 🔵 Channel B — Long-term Memory（结构化记忆）
-
-```text
-Memory Pipeline → Qdrant
+```
+POST /v1/chat/completions
+  鈹?  鈹溾攢 [S0-1]  API 鍏ュ彛瑙ｆ瀽                    api/chat.py:73
+  鈹?  鈹溾攢 [S0-2]  浼氳瘽 ID 鎺ㄥ                    core/memory.py:58
+  鈹?  鈹溾攢 [S0-3]  鐢ㄦ埛娑堟伅鍚戦噺鍖?                  services/embedding.py:7
+  鈹?  鈹溾攢 [S0-4]  涓夐噸璁板繂妫€绱?                    services/qdrant_store.py
+  鈹?  鈹溾攢 [S0-5]  璁板繂鍚堝苟鍘婚噸                     core/memory.py:39
+  鈹?  鈹溾攢 [S0-6]  鎽樿妫€绱?+ 鏂囨。妫€绱?              services/qdrant_store.py
+  鈹?  鈹溾攢 [S0-7]  鏍稿績鍐欏叆瑙﹀彂锛堝彲閫夛級              core/memory.py:107
+  鈹?  鈹溾攢 [S0-8]  鏋勫缓 RAG 鎻愮ず                    core/prompt.py:6
+  鈹?  鈹溾攢 [S0-9]  LLM 璋冪敤                         core/llm.py
+  鈹?  鈹溾攢 [S0-10] 鍚屾鍐欏叆锛氱敤鎴锋秷鎭?鈫?Qdrant      core/memory.py:143
+  鈹?  鈹溾攢 [S0-11] 鍚屾鍐欏叆锛欰I鍝嶅簲 鈫?Qdrant        core/memory.py:151
+  鈹?  鈹溾攢 [S0-12] 鎻愪氦寮傛绠￠亾浠诲姟                  memory_pipeline.py:53
+  鈹?  鈹溾攢 [S0-13] 鏉′欢鎬ф憳瑕佺敓鎴?                   core/memory.py:164
+  鈹?  鈹斺攢 HTTP 200
 ```
 
-特点：
+## 鍚勬楠よ瑙?
+### [S0-1] API 鍏ュ彛瑙ｆ瀽 鈥?`api/chat.py:73`
 
-* 异步处理
-* SLM / NLP 处理
-* 结构化存储
-* 可延迟写入
+**鍑芥暟锛?* `chat_completions()`
 
-用途：
+- 鎺ユ敹 `POST /v1/chat/completions` 璇锋眰锛岃В鏋?`ChatCompletionRequest`
+- 瑙ｆ瀽 `model` 瀛楁纭畾瑙掕壊灞傦紙`story` / `general` / `core`锛夛細
+  - `model: "story"` 鈫?璁剧疆娲昏穬瑙掕壊涓?`story`
+  - `model: "core"` 鈫?寮€鍚牳蹇冨啓鍏ユā寮忥紙Core Write Mode锛?  - `model: "deepseek-v4-flash:story"` 鈫?鍚屾椂璁剧疆妯″瀷鍜岃鑹?- 璋冪敤 `MemoryManager.process_request()` 杩涜鏍稿績澶勭悊
+- 鏋勫缓 `ChatCompletionResponse` 杩斿洖锛堟敮鎸佹祦寮?闈炴祦寮忥級
 
-* 用户偏好
-* 项目状态
-* 长期事实
-* 行为记录
+### [S0-2] 浼氳瘽 ID 鎺ㄥ 鈥?`core/memory.py:58`
 
----
+**鍑芥暟锛?* `_derive_session_id()`
 
-## 2. Memory Event = Conversation Turn（关键更新）
+- 濡傛灉璇锋眰鏈惡甯?`session_id`锛屼粠绗竴鏉＄敤鎴锋秷鎭唴瀹硅绠?MD5 鍝堝笇
+- 鏍煎紡锛歚"s-" + md5(content)[:16]`
+- 淇濊瘉鍚屼竴鐢ㄦ埛鐨勫悓涓€杞璇濅骇鐢熺ǔ瀹?ID
 
-系统不再以 Message 为单位处理记忆，而是：
+### [S0-3] 鐢ㄦ埛娑堟伅鍚戦噺鍖?鈥?`services/embedding.py:7`
 
-> Conversation Turn = User + Assistant
+**鍑芥暟锛?* `EmbeddingService.embed()`
 
----
+- 鍙栧嚭鏈€鍚庝竴鏉＄敤鎴锋秷鎭紝璋冪敤 Ollama `/api/embed` 鎺ュ彛
+- 妯″瀷锛歚nomic-embed-text`锛岃緭鍑?768 缁村悜閲?- 杩欐潯 embedding 灏嗙敤浜庡悗缁墍鏈夊悜閲忔绱?
+### [S0-4] 涓夐噸璁板繂妫€绱?鈥?`services/qdrant_store.py`
 
-### Turn结构：
+绯荤粺鍦?LLM 璋冪敤鍓嶆墽琛?**涓夌骞惰鏌ヨ**锛?
+| 鏌ヨ | 鍑芥暟 | 琛屽彿 | 鍙傛暟 |
+|------|------|------|------|
+| 浼氳瘽璁板繂 | `search_memories()` | 73 | 浠呭綋鍓?`session_id`锛宍type=memory`锛宼op_k=8 |
+| 鍏ㄥ眬璁板繂 | `search_global_memories()` | 100 | 鎸?`layer IN [core, active_role]` 杩囨护锛宼op_k=6锛宑ore 灞?脳1.05 |
+| 杩戞湡璺ㄤ細璇?| `get_recent_global_memories()` | 127 | **浠呮柊浼氳瘽瑙﹀彂**锛屾帓闄ゅ綋鍓?`session_id`锛屾瘡瑙掕壊灞傛渶澶?2 鏉?|
 
-```json
-{
-  "user": "...",
-  "assistant": "...",
-  "timestamp": "...",
-  "turn_id": "..."
-}
+**鎼滅储灞傦紙layer锛夌瓥鐣ワ細**
+- 濮嬬粓鍖呭惈 `core` 灞傦紙鏍稿績璁板繂濮嬬粓鍙绱級
+- 鍔犱笂褰撳墠娲昏穬瑙掕壊灞傦紙`story` / `general` 绛夛級
+- 濡傛灉娲昏穬灞備篃鏄?`core`锛屼笉閲嶅娣诲姞
+
+### [S0-5] 璁板繂鍚堝苟鍘婚噸 鈥?`core/memory.py:39`
+
+**鍑芥暟锛?* `_merge_memories()`
+
+- 鍚堝苟涓夋妫€绱㈢粨鏋滐紙浼氳瘽璁板繂 + 鍏ㄥ眬璁板繂 + 璺ㄤ細璇濊蹇嗭級
+- 鎸夊唴瀹瑰墠 100 瀛楃鍘婚噸锛坄seen` set锛?- 鎴彇鏈€澶?**12 鏉?*璁板繂閫佸叆 prompt
+
+### [S0-6] 鎽樿妫€绱?+ 鏂囨。妫€绱?鈥?`services/qdrant_store.py`
+
+**鎽樿妫€绱細** `get_summary()` (琛?191)
+- 婊氬姩鏌ヨ `type=summary` 鐨勬渶鏂拌褰?- 杩斿洖褰撳墠涓栫晫瑙傛憳瑕佹枃鏈垨 None
+
+**鏂囨。妫€绱細** `search_documents()` (琛?166)
+- 鑾峰彇褰撳墠娲昏穬鏂囨。 ID 鍒楄〃锛堥€氳繃 `/documents/active` 绔偣璁剧疆锛?- 鍦?`documents` 闆嗗悎涓悳绱紝浠呴檺娲昏穬 `doc_id`
+- top_k=4锛屽垎鏁伴槇鍊?0.65
+
+### [S0-7] 鏍稿績鍐欏叆瑙﹀彂锛堝彲閫夛級鈥?`core/memory.py:107`
+
+浠呭湪 **Core Write Mode** 寮€鍚椂瑙﹀彂锛?- 妫€鏌ョ敤鎴锋秷鎭槸鍚﹀寘鍚?`CORE_TRIGGERS`锛坄"璁颁綇锛?` / `"瑕佽寰楋細"` / `"鍐欏叆鏍稿績锛?`锛?- 鍖归厤鍚庢彁鍙栬Е鍙戣瘝鍚庣殑鏂囨湰锛屽悜閲忓寲锛岀洿鎺ヤ互 `layer=core` 鍐欏叆 Qdrant
+- 杩欐槸鐢ㄦ埛鏄惧紡鎺у埗闀挎湡璁板繂鐨勬満鍒?
+### [S0-8] 鏋勫缓 RAG 鎻愮ず 鈥?`core/prompt.py:6`
+
+**鍑芥暟锛?* `build_prompt()`
+
+灏嗘绱㈠埌鐨勪笂涓嬫枃娉ㄥ叆绯荤粺娑堟伅锛岀粨鏋勪负锛?
+```
+[鍩虹绯荤粺鎻愮ず]
+  + [褰撳墠涓栫晫瑙傛憳瑕乚      鈫?鏉ヨ嚜 S0-6
+  + [鐩稿叧鍘嗗彶璁板繂]        鈫?鏉ヨ嚜 S0-5锛屾渶澶?12 鏉?  + [鏂囨。鍙傝€僝           鈫?鏉ヨ嚜 S0-6锛宻core 鈮?0.65
 ```
 
----
+鏈€缁堜繚鐣欏師濮嬭姹備腑鐨勭敤鎴?鍔╂墜娑堟伅椤哄簭涓嶅彉銆?
+### [S0-9] LLM 璋冪敤 鈥?`core/llm.py`
 
-### 为什么必须 Turn 聚合：
+**鍑芥暟锛?* `LLMFactory.get().chat()`
 
-解决问题：
+- 鏍规嵁 `Config.LLM_PROVIDER` 閫夋嫨瀹㈡埛绔細Ollama / DeepSeek / OpenAI
+- DeepSeek 瀹㈡埛绔澶栨彁鍙?reasoning_content 鍒?`last_reasoning` 瀛楁
+- 杩斿洖 LLM 鐢熸垚鐨勬枃鏈搷搴?
+### [S0-10] [S0-11] 鍚屾鍐欏叆 Qdrant 鈥?`core/memory.py:143,151`
 
-* “你说得对”无法脱离上下文
-* AI回复必须绑定用户意图
-* 避免语义断裂
-* 保持对话语义完整性
+LLM 杩斿洖鍚庯紝绔嬪嵆鍚屾鍐欏叆涓ゆ潯鍘熷璁板綍锛?
+| 鏃跺簭 | 鍐呭 | type | 瑙掕壊灞?|
+|------|------|------|--------|
+| LLM 涔嬪悗 | 鐢ㄦ埛鏈€鍚庝竴鏉℃秷鎭?| `memory` | 褰撳墠娲昏穬瑙掕壊灞?|
+| LLM 涔嬪悗 | AI 瀹屾暣鍝嶅簲 | `memory` | 褰撳墠娲昏穬瑙掕壊灞?|
 
----
+**杩囨护锛?* `_is_auto_task()` (琛?10) 妫€娴?Open WebUI 鑷姩鐢熸垚鐨勪换鍔℃秷鎭苟璺宠繃
+- 鐗瑰緛锛歚"### Task:"` 鍓嶇紑銆乣<chat_history>` 鏍囪銆佷粎鍚?`tags/title/follow_ups` 鐨?JSON
 
-## 3. 非对称信息权重（优化版）
+### [S0-12] 鎻愪氦寮傛绠￠亾浠诲姟 鈥?`memory_pipeline.py:53`
 
-信息来源权重：
+**鍑芥暟锛?* `submit_turn()`
 
-| Source            | Weight    |
-| ----------------- | --------- |
-| User Message      | 1.0       |
-| Assistant Message | 0.5 ~ 0.7 |
+- 鍒涘缓 `MemoryEvent`锛堢敤鎴锋秷鎭?+ 鍔╂墜娑堟伅 + session_id + 瑙掕壊灞傦級
+- 璋冪敤 `PersistentQueue.enqueue()` 鍐欏叆 SQLite 琛?- **涓嶉樆濉?HTTP 鍝嶅簲杩斿洖**锛屽悗鍙板伐浣滅嚎绋嬫秷璐?
+### [S0-13] 鏉′欢鎬ф憳瑕佺敓鎴?鈥?`core/memory.py:164`
 
-说明：
+**鍑芥暟锛?* `_generate_summary()`
 
-* 不再使用固定 0.8 / 0.2
-* 权重作为 feature bias 而非硬规则
-* User 信号优先，但不绝对
-
----
-
-## 4. Memory Unit（替代 Atomic Fact）
-
-Phase 1 不再使用“Atomic Fact”，改为：
-
-> Memory Unit（MU）：最小有意义记忆单元
+- 瑙﹀彂鏉′欢锛氳浼氳瘽娑堟伅鎬绘暟鑳借 `(SUMMARY_INTERVAL 脳 2)` 鏁撮櫎
+- 榛樿 `SUMMARY_INTERVAL=30` 鈫?姣?**60 鏉℃秷鎭?* 瑙﹀彂涓€娆?- 杩囩▼锛氭彁鍙栬繎鏈熸秷鎭?鈫?LLM 鍚堟垚鎽樿 鈫?鍚戦噺鍖?鈫?`save_summary()`
+- `save_summary()` 鍏堝垹闄ゆ棫鎽樿鍐嶅啓鍏ユ柊鎽樿锛堝彧鏈変竴涓椿璺冩憳瑕侊級
 
 ---
 
-### MU定义原则：
+## 闃舵 1 鈥?寮傛閾捐矾锛堝悗鍙扮閬擄級
 
-* 单一主题
-* 单一意图
-* 可独立检索
-* 保留必要上下文
+### 鏁版嵁娴佹€昏
 
----
-
-### 示例：
-
-原文：
-
-```text
-用户不喜欢海鲜，特别是虾
+```
+_worker() 瀹堟姢绾跨▼
+  鈹? (妯″潡瀵煎叆鏃跺惎鍔? memory_pipeline.py:191)
+  鈹?  鈹溾攢 [S1-1]  宕╂簝鎭㈠: recover_stale(30s)
+  鈹?  鈹溾攢 [S1-2]  姣?0鍒嗛挓: cleanup(86400s)
+  鈹?  鈹斺攢 杞寰幆 (姣?绉?
+       鈹?       鈹溾攢 [S1-3]  PersistentQueue.dequeue(batch=1)
+       鈹?    鈫?浠?SQLite 鍙栧嚭鏈€鏃╀竴鏉?pending 璁板綍
+       鈹?    鈫?鏍囪涓?processing
+       鈹?       鈹溾攢 [S1-4]  _process_turn(turn_data)
+       鈹?       鈹溾攢 [S1-4a] 鎷兼帴瀵硅瘽鏂囨湰 "鐢ㄦ埛: ...\nAI鍔╂墜: ..."
+       鈹?       鈹溾攢 [S1-4b] slm_validate(瀵硅瘽鏂囨湰)
+       鈹?    鈫?璋冪敤 DeepSeek API锛圫LM 瑙掕壊锛?       鈹?    鈫?杈撳嚭缁撴瀯鍖?JSON: keep/importance/confidence/tier/type/tag/summaries
+       鈹?    鈫?榛樿鎷掔粷绛栫暐锛氭棤鐢ㄦ埛浜嬪疄 鈫?keep=false
+       鈹?       鈹溾攢 [S1-4c] DecisionMaker.classify_mu(SLM 缁撴灉)
+       鈹?    鈫?鍐崇瓥鐭╅樀锛坕mportance 脳 confidence锛?       鈹?    鈫?杈撳嚭 store_priority: golden / review / low / drop
+       鈹?       鈹溾攢 [S1-4d] 鍥為€€: extract_mus() 鈥?褰?SLM 鏃犳憳瑕佹椂
+       鈹?    鈫?鍩轰簬瑙勫垯锛氭寜涓枃杩炶瘝/鏍囩偣鍒嗗壊
+       鈹?       鈹斺攢 [S1-4e] _store_mu(姣忎釜鎽樿) 鈫?鏈€澶?3 涓?杞
+             鈹溾攢 normalize() 鈫?鏈鏍囧噯鍖?             鈹溾攢 is_duplicate() 鈫?浣欏鸡鐩镐技搴?鈮?0.90 璺宠繃
+             鈹溾攢 detect_polarity() 鈫?鏋佹€у啿绐?鈫?鏃ц鐩?             鈹斺攢 Qdrant.upsert() 鈫?type=memory_unit, 鍚畬鏁村厓鏁版嵁
+       鈹?       鈹溾攢 mark_done() / mark_failed()
+       鈹?       鈹斺攢 缁х画杞
 ```
 
-MU：
+## 鍚勬楠よ瑙?
+### [S1-0] 鍚庡彴绾跨▼鍚姩 鈥?`memory_pipeline.py:191`
 
-```text
-用户不喜欢海鲜（尤其是虾）
+```python
+_worker_thread = threading.Thread(target=_worker, daemon=True, name="memory-pipeline")
+_worker_thread.start()
 ```
 
+- 鍦ㄦā鍧楀鍏ユ椂鑷姩鍚姩锛坄from core.memory_pipeline import ...` 鍗宠Е鍙戯級
+- **daemon=True**锛氫笉闃绘杩涚▼閫€鍑?- 鐙珛杩愯浜庝富 HTTP 璇锋眰绾跨▼涔嬪
+
+### [S1-1] 宕╂簝鎭㈠ 鈥?`persistent_queue.py:109`
+
+**鍑芥暟锛?* `recover_stale(timeout=30)`
+
+- 鍚姩鏃惰嚜鍔ㄦ墽琛屼竴娆?- 鏌ユ壘 `status='processing'` 涓?`updated_at < now - 30s` 鐨勮褰?- 灏嗗叾閲嶇疆涓?`pending`锛屼娇瀹冧滑鑳借閲嶆柊娑堣垂
+- 瑙ｅ喅鏈嶅姟宕╂簝鏃跺崱浣忕殑鍗婂鐞嗛」
+
+### [S1-2] 瀹氭湡娓呯悊 鈥?`persistent_queue.py:127`
+
+**鍑芥暟锛?* `cleanup(max_age=86400)`
+
+- 姣?10 鍒嗛挓鎵ц涓€娆?- 鍒犻櫎 `status IN ('done', 'dead')` 涓旇秴杩?24 灏忔椂鐨勮褰?- 闃叉 SQLite 鏃犻檺澧為暱
+
+### [S1-3] 鍑洪槦 鈥?`persistent_queue.py:65`
+
+**鍑芥暟锛?* `dequeue(batch_size=1)`
+
+- 鎸?`created_at ASC` 鍙栨渶鏃╃殑涓€鏉?`pending` 璁板綍
+- 鍘熷瓙鎬у湴鏇存柊涓?`processing` 鐘舵€侊紙闃查噸澶嶆秷璐癸級
+- 杩斿洖 `{id, data (dict), retries}`
+
+### [S1-4] 鏍稿績澶勭悊 鈥?`memory_pipeline.py:160`
+
+**鍑芥暟锛?* `_process_turn()`
+
+杩欐槸鏁翠釜绠￠亾鏈€鍏抽敭鐨勭紪鎺掑嚱鏁般€備緷娆℃墽琛屼互涓嬪瓙姝ラ锛?
 ---
 
-原文：
+### [S1-4a] 鎷兼帴杞鏂囨湰
 
-```text
-用户不喜欢海鲜，并且正在学习AUTOSAR
+```python
+turn_text = f"鐢ㄦ埛: {turn_data.get('user','')}\nAI鍔╂墜: {turn_data.get('assistant','')}"
 ```
 
-MU：
-
-```text
-用户不喜欢海鲜
-
-用户正在学习AUTOSAR
-```
+- 灏嗘暣杞璇濓紙鐢ㄦ埛 + 鍔╂墜锛夋嫾鎺ヤ负涓€涓瓧绗︿覆
+- 浜ょ敱 SLM 璇勪及鏄惁鍊煎緱璁板繂
 
 ---
 
-## 5. Memory Queue 增强（关键更新）
+### [S1-4b] SLM 楠岃瘉 鈥?`core/text_utils.py:68`
 
-### 🎯 新设计：Memory Event Queue
+**鍑芥暟锛?* `slm_validate()`
 
-所有记忆不直接进入 SLM，而是：
+杩欐槸绠￠亾鐨?*璇箟闂ㄦ帶**锛?
+- 浣跨敤 DeepSeek 鎵紨 SLM锛圫mall Language Model锛夎鑹?- 璋冪敤 `SLM_PROMPT v3.0`锛坧rompt 绾?180 琛岋級
+- 鍙傛暟锛歚temperature=0.1`锛堜綆闅忔満鎬э級锛宍max_tokens=300`
 
-```text
-Message → Memory Event Queue → Batch Aggregation → SLM
-```
-
----
-
-### Queue职责：
-
-* 解耦 Chat & Memory
-* 保证异步处理
-* 防止 SLM 阻塞
-* 支持高吞吐
-
----
-
-### 队列单位：
-
-```text
-Memory Event = Conversation Turn
-```
-
----
-
-## 6. Batch Aggregation（关键更新）
-
-### 🎯 目标
-
-减少 SLM 调用次数，提高上下文完整性
-
----
-
-### 聚合单位：
-
-```text
-N Turns → Batch
-```
-
-或：
-
-```text
-Time Window (e.g. 10s)
-```
-
----
-
-### 示例：
-
-```text
-Turn1
-Turn2
-Turn3
-```
-
-→ 一次送入 SLM
-
----
-
-### 优势：
-
-* 上下文完整
-* 降低 token 消耗
-* 提升 SLM 判断准确率
-
----
-
-## 7. Memory Routing Layer（无keyword）
-
-职责：
-
-* 结构信号判断
-* 不做语义理解
-* 决定 DROP / SLM / AUTO
-
----
-
-### 信号来源：
-
-* entropy
-* repetition
-* novelty
-* structural complexity
-
----
-
-## 8. Signal Feature Layer
-
-输出：
-
-```text
-Signal Score
-```
-
-组成：
-
-* 信息密度
-* 结构复杂度
-* 新颖性（embedding）
-* 重复率
-
----
-
-## 9. Routing Decision Layer
-
-```text
-if score < 0.35 → DROP
-0.35 ~ 0.80 → SLM
-> 0.80 → SLM（或未来AUTO STORE）
-```
-
----
-
-## 10. SLM Validator
-
-职责：
-
-* keep / reject
-* type classification
-* light normalization
-
----
-
-### 输出：
+**SLM 杈撳嚭鏍煎紡锛?*
 
 ```json
 {
   "keep": true,
-  "type": "preference",
-  "confidence": 0.91
+  "importance": 0.85,
+  "confidence": 0.75,
+  "tier": "LONG",
+  "type": "ENTITY",
+  "tag": "identity",
+  "summaries": ["鐢ㄦ埛浠庝簨AI寮€鍙?, "鐢ㄦ埛鎶€鏈爤鏄疨ython"]
 }
 ```
 
----
+**鏍稿績绛栫暐锛氶粯璁ゆ嫆缁濓紙Default Reject锛?*
+- 闄ら潪鏄庣‘璇嗗埆鍑虹敤鎴疯韩浠?鍋忓ソ/椤圭洰/浠诲姟/缁忛獙
+- AI 鐨勯€氱敤鐭ヨ瘑鍥炵瓟涓嶈繘鍏ラ暱鏈熻蹇?- 鐢ㄦ埛閮ㄥ垎鏉冮噸 1.0锛孉I 閮ㄥ垎鏉冮噸 0.6~0.8
 
-## 11. Memory Unit Extractor
-
-职责：
-
-* 将 Turn 转换为 Memory Unit
-* 进行 minimal abstraction
-* 保留必要上下文
+**杈撳嚭瑙ｆ瀽锛?* `_safe_parse_json()` (琛?306)
+- 鏀寔澶氱瀹归敊瑙ｆ瀽锛氱函 JSON銆乵arkdown fence 鍖呰９銆佹鍒欐彁鍙栥€佸叧閿瘝鍏滃簳
 
 ---
 
-## 12. Memory Normalizer
+### [S1-4c] 鍐崇瓥鐭╅樀 鈥?`core/decision_maker.py:17`
 
-职责：
+**鍑芥暟锛?* `DecisionMaker.classify_mu()`
 
-* 统一表达
-* 去冗余
-* 标准化语义表达
+| 鏉′欢 | store_priority | 鍚箟 |
+|------|---------------|------|
+| importance 鈮?0.7 AND confidence 鈮?0.7 | `golden` | 榛勯噾璁板繂锛岀洿鎺ュ叆搴?|
+| importance 鈮?0.7 AND confidence < 0.7 | `review` | 楂樹环鍊间絾浣庣疆淇★紝闇€澶嶆牳 |
+| importance 鈮?0.4 AND < 0.7 | `low` | 浣庝紭鍏堢骇锛屽瓨浣嗕笉淇濊瘉鍙洖 |
+| importance < 0.4 | `drop` | 涓㈠純 |
 
+鍚屾椂鏄犲皠锛?- `type` 鈫?`mu_type`锛圗NTITY / RELATION / EVENT / TASK锛?- `tag` 鈫?`mu_tag`锛坕dentity / preference / project / fact / task / knowledge / noise锛?- `type` 鈫?`layer_type`锛圗NTITY/RELATION 鈫?semantic, EVENT/TASK 鈫?episodic锛?
 ---
 
-## 13. Dedup / Conflict Layer
+### [S1-4d] 鍥為€€鎻愬彇 鈥?`core/text_utils.py:53`
 
-规则：
+**鍑芥暟锛?* `extract_mus()`
 
-* similarity > 0.9 → update
-* contradiction → conflict queue
-
+褰?SLM 鏈繑鍥?summaries 鏃剁殑鍏滃簳鏂规锛?- 鎸変腑鏂囪繛璇?鏍囩偣鍒嗗壊鐢ㄦ埛娑堟伅
+- 妯″紡锛歚r'(?:骞朵笖|鑰屼笖|杩榺浠ュ強|鍚屾椂|锛寍銆倈锛泑銆?'`
+- 鍙栧墠 5 涓€欓€夌墖娈碉紙闀垮害 > 4 瀛楃锛?
 ---
 
-## 14. Storage Schema (Qdrant)
+### [S1-4e] 瀛樺偍 Memory Unit 鈥?`memory_pipeline.py:90`
 
+**鍑芥暟锛?* `_store_mu()`
+
+姣忎釜鎽樿鏈€缁堥€氳繃鍥涙娓呮礂鍚庡啓鍏?Qdrant锛?
+**鈶?鏍囧噯鍖栵細** `normalize()` (琛?362)
+- 涓昏缁熶竴锛歚"鎴?` 鈫?`"鐢ㄦ埛"`锛宍"鎴戜滑"` 鈫?`"鐢ㄦ埛"`
+- 鏈鏍囧噯鍖栵細澶у皬鍐欑粺涓€锛坅utosar鈫扐UTOSAR, rag鈫扲AG, python鈫扨ython 绛夛級
+- 15 涓缃妧鏈悕璇嶆槧灏?
+**鈶?鍘婚噸锛?* `is_duplicate()` (琛?410)
+- 瀵瑰唴瀹瑰仛 embedding锛堣皟鐢?Ollama锛?- 鍦?Qdrant `memory_unit` 绫诲瀷涓悳绱?Top 5
+- **浣欏鸡鐩镐技搴?鈮?0.90 鈫?瑙嗕负閲嶅锛岃烦杩囧瓨鍌?*
+
+**鈶?鏋佹€у啿绐佹娴嬩笌瑙ｅ喅锛?* `detect_polarity()` (琛?392)
+- 鍩轰簬鍏抽敭璇嶈鏁板垽鏂瀬鎬э細
+  - 姝ｉ潰璇嶏細鍠滄銆佺埍銆佹敮鎸併€佹帹鑽?..
+  - 璐熼潰璇嶏細涓嶅枩娆€佽鍘屻€佹嫆缁濄€佹棤娉?..
+- 濡傛灉鏂板唴瀹规瀬鎬ч潪涓€э紝涓斿瓨鍦ㄨ涔夌浉浼硷紙score 鈮?0.80锛夌殑鏃х偣浣嗘瀬鎬х浉鍙?- **绛栫暐锛氭柊鏁版嵁瑕嗙洊鏃ф暟鎹?*锛堝垹闄ゆ棫鐐?+ 鍐欏叆鏂扮偣锛?
+**鈶?鍐欏叆 Qdrant锛?* `PointStruct` 鍖呭惈瀹屾暣杞借嵎锛?
 ```json
 {
   "id": "uuid",
-  "content": "用户正在开发AI记忆系统",
-  "type": "project",
-  "confidence": 0.91,
-  "embedding": [],
-  "timestamp": 1712345678,
-  "metadata": {
-    "source": "user",
-    "turn_id": "...",
-    "layer": "semantic"
+  "vector": [768缁?embedding],
+  "payload": {
+    "content": "鐢ㄦ埛浠庝簨AI寮€鍙?,
+    "type": "memory_unit",
+    "mu_type": "ENTITY",
+    "mu_tag": "identity",
+    "layer_type": "semantic",
+    "slm_version": "v3.0",
+    "importance": 0.85,
+    "confidence": 0.75,
+    "store_priority": "golden",
+    "layer": "story",
+    "session_id": "s-abc123",
+    "turn_id": "a1b2c3d4e5f6",
+    "source_user": "鍘熺敤鎴锋秷鎭?鎴柇200瀛?",
+    "source_assistant": "鍘烝I鍝嶅簲(鎴柇200瀛?",
+    "timestamp": 1712345678.0
   }
 }
 ```
 
----
+### [S1-5] 鏍囪瀹屾垚/澶辫触 鈥?`persistent_queue.py:83,92`
 
-# 📊 Phase 1 成功指标
-
----
-
-## 成本
-
-* LLM调用 < 3%
-* SLM调用 < 20%
+- **鎴愬姛锛?* `mark_done()` 鈫?鐘舵€佹敼涓?`done`
+- **澶辫触锛?* `mark_failed()` 鈫?`retries++`锛岃秴 3 娆″悗鐘舵€佸彉 `dead`锛屽惁鍒欓噸缃负 `pending` 绛夊緟閲嶈瘯
 
 ---
 
-## 质量
-
-* 噪声记忆减少 > 60%
-* 重复率降低 > 70%
-
----
-
-## 性能
-
-* Memory pipeline < 100ms（非LLM路径）
-* Queue处理稳定无阻塞
-
----
-
-# 🧠 Phase 1 本质定义
-
-> Phase 1 是一个“解耦实时对话与结构化长期记忆的双通道 Memory Admission System”
+# 馃搳 涓や釜闃舵鐨勬暟鎹姣?
+| 缁村害 | 闃舵 0锛堝悓姝ワ級 | 闃舵 1锛堝紓姝ワ級 |
+|------|---------------|---------------|
+| **Qdrant `type`** | `memory` | `memory_unit` |
+| **鍐呭** | 鍘熷瀵硅瘽锛堝畬鏁达級 | 鎻愮偧鎽樿锛堢粨鏋勫寲锛?|
+| **鍏冩暟鎹?* | layer, role, session_id | mu_type, mu_tag, layer_type, importance, confidence, slm_version, store_priority |
+| **寤惰繜瑕佹眰** | 蹇呴』鍦?HTTP 鍝嶅簲鍐呭畬鎴?| 鍙欢杩熸暟绉掑埌鏁板垎閽?|
+| **澶辫触褰卞搷** | 鐢ㄦ埛鍙锛堣蹇嗕涪澶憋級 | 鐢ㄦ埛鏃犳劅鐭ワ紙鑷姩閲嶈瘯锛?|
+| **鍘婚噸** | 鉂?涓嶅仛 | 鉁?浣欏鸡鐩镐技搴?鈮?0.90 |
+| **鍐茬獊瑙ｅ喅** | 鉂?涓嶅仛 | 鉁?鏋佹€ф娴?+ 瑕嗙洊 |
+| **鏍囧噯鍖?* | 鉂?涓嶅仛 | 鉁?鏈缁熶竴 + 涓昏褰掍竴 |
+| **璐ㄩ噺鎺у埗** | 鉂?鍏ㄤ繚瀛?| 鉁?SLM 璇勪及 + 鍐崇瓥鐭╅樀 |
+| **鎵归噺澶勭悊** | 姣忚姹?1 娆?| 鍚庡彴鎵归噺娑堣垂 |
 
 ---
 
-# 🚀 Phase 1 输出能力
+# 馃椇锔?鍏抽敭鏂囦欢绱㈠紩
+
+| 鏂囦欢 | 鑱岃矗 |
+|------|------|
+# 🗺️ 关键文件索引
+
+| 文件 | 职责 |
+|------|------|
+| `api/chat.py` | HTTP 入口，解析请求，构建响应 |
+| `core/memory.py` | MemoryManager：阶段 0 的核心编排 |
+| `core/memory_pipeline.py` | 阶段 1 的编排入口（worker、_store_mu） |
+| `core/prompt_factory.py` | SLM Prompt 模板（v3.0，约 180 行） |
+| `core/decision_maker.py` | 决策矩阵（importance x confidence 分类） |
+| `core/text_utils.py` | 文本处理（标准化/去重/极性检测/SLM 验证） |
+| `core/prompt.py` | RAG 提示构建 |
+| `core/llm.py` | LLM 客户端工厂 |
+| `core/config.py` | 全局配置 |
+| `core/state.py` | 运行时状态（活跃角色、核心写模式、活跃文档） |
+| `services/embedding.py` | 向量化服务（Ollama nomic-embed-text） |
+| `services/qdrant_store.py` | Qdrant 数据访问层 |
+| `services/session_store.py` | 内存会话存储 |
+| `services/persistent_queue.py` | SQLite 持久队列 |
 
-完成后系统具备：
-
-* 双通道记忆架构
-* Turn级记忆建模
-* 异步 Memory Queue
-* Batch SLM processing
-* Memory Unit 结构化存储
-* 冲突与去重机制
-
-并为后续：
-
-* Phase 2 Insight Memory
-* Phase 3 Episodic Memory
-* Phase 4 Graph Memory
-
-提供稳定底座。
-
-# Phase 1 架构图
-
-════════════════════════════════════════════════════════════
-                 PHASE 1 MEMORY SYSTEM ARCHITECTURE
-════════════════════════════════════════════════════════════
-
-
-                    			┌────────────────────────┐
-                    			│                         USER INPUT                   │
-                   			└────────────┬───────────┘
-                                                        	     	    │
-        			┌───────────────┴───────────────────┐
-        			│                                                				     		   │	
-        			▼                                             				     		   ▼
-┌──────────────────────┐                 		   ┌────────────────────────┐
-│             		CHANNEL A   	       │                 		   │   		    CHANNEL B             		│
-│  		WORKING MEMORY          │                 		   │   		MEMORY PIPELINE   	        │
-│  			(REAL-TIME)         	       │                 		   │  				 (ASYNC)               		│
-└──────────────────────┘                 		   └───────────┬────────────┘
-        			│                                           					       		   │
-        			│                                           					       		   ▼
-        			│                               		   		   ┌────────────────────────┐
-        			│                               		   		   │ 		     Memory Event Queue     	│
-        			│                               		   		   │ 			(Turn-based events)     	│
-        			│                               		   		   └───────────┬────────────┘
-        			│                                          					       		   │
-        			│                                          					       		   ▼
-        			│                               		   		   ┌────────────────────────┐
-        			│                               		   		   │ 			Batch Aggregator       	        │
-        			│                               		   		   │ 		 (time window / N turns) 	   	│
-        			│                               		   		   └──────────┬─────────────┘
-        			│                                          							 │
-        			│                                          							 ▼
-        			│                               		   		   ┌────────────────────────┐
-        			│                               		   		   │ 		    Memory Routing Layer    	│
-        			│                               		   		   │ 			(no keyword, signals)         │
-        			│                               		   		   └──────────┬─────────────┘
-        			│                                          							  │
-        			│                                          							  ▼
-        			│                               		   		   ┌────────────────────────┐
-        			│                               		   		   │ 			Signal Feature Engine    	│
-        			│                               		   		   │ 			density / entropy / etc  	│
-        			│                               		   		   └────────────────────────┘
-        			│                                          							   │
-        			│                                          							   ▼
-        			│                               		   		   ┌────────────────────────┐
-        			│                               		   		   │ 			Routing Decision                 │
-        			│                               		   		   │ 			DROP / SLM / AUTO            │
-        			│                               		   		   └────────────────────────┘
-        			│                                          						            │
-        			│                                                              ┌────────────┴─────────────┐
-        			│                     						│                                         				   │
-        			▼                     					▼                                         				   ▼
-┌────────────────────┐   ┌──────────────────────┐         ┌──────────────────────┐
-│ 		LLM PROMPT		  │   │ 		SLM VALIDATOR 		       │         │ 			    DROP                		  │
-│ 	      (RAW HISTORY)      	  │   │	       (async batch input)   	       │         │ 		           (noise)              		  │
-│                    					  │   └──────────┬───────────┘         └──────────────────────┘
-└────────────────────┘              		      │
-        			│                           				      ▼
-        			│               		┌────────────────────────┐
-        			│               		│ 		KEEP / REJECT / TYPE  		     │
-        			│               		└──────────┬─────────────┘
-        			│                          				      ▼
-        			│            		┌──────────────────────────────┐
-        			│            		│ 			Memory Unit Extractor         	     │
-        			│            		│			 (Turn → MU conversion)        	     │
-        			│            		└─────────────┬────────────────┘
-        			│                       				      ▼
-        			│            		┌──────────────────────────────┐
-        			│            		│ 			Memory Normalizer             	     │
-        			│            		│ 			(standardize expression)        	     │
-        			│            		└─────────────┬────────────────┘
-        			│                       				      ▼
-        			│            		┌──────────────────────────────┐
-        			│            		│ 			Dedup / Conflict Resolver     	     │
-        			│            		└─────────────┬────────────────┘
-        			│                       		     		      ▼
-        			│                 			┌──────────────┐
-        			│                 			│  	   QDRANT DB   	 │
-        			│                 			│ 	(Semantic Mem)	 │
-        			│                 			└──────────────┘
-        			│
-        			▼
-────────────────────────────────────────────────────────────
-                 LLM RESPONSE OUTPUT
-────────────────────────────────────────────────────────────
-
-
-
-════════════════════════════════════════════════════════════
-                 KEY DESIGN CONTRACTS
-════════════════════════════════════════════════════════════
-
-
-## WORKING MEMORY (Channel A)
---------------------------------
-- 不进入SLM
-- 不结构化
-- 只保证对话连续性
-- 即时注入LLM prompt
-
-
-## MEMORY EVENT
-----------------
-- 单位 = Conversation Turn
-  (User + Assistant)
-- 不使用单条 message
-
-
-## ASYNC MEMORY PIPELINE
--------------------------
-- Queue 解耦 chat & memory
-- SLM 永不阻塞用户对话
-- Batch processing 提升上下文质量
-
-
-## MEMORY UNIT
----------------
-- 不做 atomic fact explosion
-- 做 minimal useful memory unit
-- 保留语义完整性 + 可检索性
-
-
-## WEIGHT PRINCIPLE
---------------------
-- User > Assistant
-- 但不作为硬规则
-- 作为 feature bias
-
-
-## QDRANT MEMORY
------------------
-- 只存结构化 memory units
-- embedding 基于 MU
-- 不存 raw dialogue
-
-很好，这一段其实是整个系统里**最容易设计错的一段（也是决定 memory 质量的核心）**。我给你按“工程拆解视角”讲清楚：每一层用什么技术、为什么、怎么实现。
-
----
-
-# 🧠 这一段链路的本质
-
-你这条链：
-
-```text
-SLM VALIDATOR
-   ↓
-KEEP / REJECT / TYPE
-   ↓
-Memory Unit Extractor
-   ↓
-Memory Normalizer
-   ↓
-Dedup / Conflict Resolver
-```
-
-本质不是“一个模型流程”，而是：
-
-> **三种系统叠加：规则系统 + 轻NLP + 小模型 + 少量LLM仲裁**
-
----
-
-# 🧱 总体分工图（非常关键）
-
-```text
-PURE CODE        	      NLP            		SLM            	 	LLM
-   	│              		│               	  	  │               		 │
-   	▼              		▼              	  	  ▼                  	    	 ▼
-
-Routing      		Feature Stats   	Semantic Judge   Conflict Resolve
-Extractor    		Entity/NER      	Keep/Type        	Rare correction
-Normalizer   		Embedding       	Confidence       	Ambiguity solve
-Dedup        		Similarity
-```
-
----
-
-# ⚙️ 1. SLM VALIDATOR（核心语义门控）
-
-## 🎯 职责
-
-> 判断：这条“是否值得进入长期记忆”
-
----
-
-## ❌ 不做
-
-* 不做事实拆分
-* 不做总结
-* 不做去重
-* 不做embedding计算
-
----
-
-## ✔ 做什么（SLM ONLY）
-
-```json
-{
-  "keep": true/false,
-  "type": "preference | fact | project | task | noise",
-  "confidence": 0-1
-}
-```
-
----
-
-## 🧠 输入
-
-```text
-Conversation Turn (user + assistant)
-+ optional short context window
-```
-
----
-
-## ⚙️ 实现方式
-
-### ✔ 推荐模型
-
-* Qwen2.5-1.5B
-* Qwen3-1.7B
-* Mistral 7B (quantized)
-
----
-
-### ✔ Prompt（关键）
-
-```text
-你是个记忆过滤器。
-决定这些信息是否需要长期存储。
-仅返回JSON格式：
-
-{
-  "keep": true/false,
-  "type": "fact | preference | project | task | noise",
-  "confidence": 0-1
-}
-
-用户的消息重要度比AI的消息重要度高。
-
-内容：{content}
-```
-
----
-
-## 🟢 技术本质
-
-* SLM = semantic classifier
-* 不参与结构化
-* 只做 gating
-
----
-
-# ⚙️ 2. KEEP / REJECT / TYPE（纯逻辑层）
-
-## 🎯 这一层是“无模型逻辑”
-
-SLM 输出之后：
-
-```text
-KEEP / REJECT / TYPE
-```
-
----
-
-## ✔ 实现方式（100% code）
-
-```python
-if slm.keep == False:
-    drop()
-
-elif slm.confidence < 0.4:
-    maybe_drop()
-
-else:
-    continue_pipeline()
-```
-
----
-
-## TYPE mapping（纯规则）
-
-```python
-type_map = {
-    "fact": "semantic",
-    "preference": "semantic",
-    "project": "episodic",
-    "task": "episodic",
-    "noise": "drop"
-}
-```
-
----
-
-## 🧠 这一层的本质
-
-> 把 SLM 输出“工程化落地”
-
----
-
-# ⚙️ 3. Memory Unit Extractor（最关键但最容易误解）
-
-## 🎯 职责
-
-> 把 Turn 转成 Memory Unit（MU）
-
----
-
-## ❗ 这里不是 LLM，也不是 SLM
-
-它应该是：
-
-> **Hybrid（规则 + NLP + optional SLM assist）**
-
----
-
-# 🧱 三种实现方式（推荐组合）
-
----
-
-## ✔ A. NLP结构拆分（主力）
-
-### 工具：
-
-* spaCy / stanza
-* dependency parsing
-* NER
-* sentence segmentation
-
----
-
-### 做什么：
-
-#### 1️⃣ 主语识别
-
-```text
-用户 / 我 / 我们
-```
-
----
-
-#### 2️⃣ 谓语结构拆分
-
-```text
-AUTOSAR / Ollama / Qdrant
-```
-
----
-
-#### 3️⃣ 实体提取
-
-```text
-AUTOSAR / Ollama / Qdrant
-```
-
----
-
-### 输出候选 MU：
-
-```json
-[
-  "用户正在开发AI记忆系统",
-  "用户接入DeepSeek",
-  "用户增加文档分析模块"
-]
-```
-
----
-
-## ✔ B. lightweight heuristic merge
-
-防止过度拆分：
-
-```python
-if same_subject and same_topic:
-    merge()
-```
-
----
-
-## ✔ C. optional SLM assist（只在复杂句）
-
-例如：
-
-```text
-我以前用Ollama，现在换DeepSeek，还加了文档分析
-```
-
-SLM辅助：
-
-```text
-split into 3 semantic units
-```
-
----
-
-## 🧠 本质
-
-> Extractor = “语义结构切割器”
-
----
-
-# ⚙️ 4. Memory Normalizer（统一表达层）
-
-## 🎯 职责
-
-把 MU 变成“标准记忆表达”
-
----
-
-## ❗ 这一层完全不需要 LLM
-
-只需要：
-
-* NLP + rule + embedding dictionary
-
----
-
-# 🧱 实现细节
-
----
-
-## ✔ 1. 同义归一（light NLP）
-
-```text
-搞 / 做 / 开发 → 从事
-```
-
----
-
-## ✔ 2. 主语标准化
-
-```text
-我 → 用户
-我们 → 用户团队（可选）
-```
-
----
-
-## ✔ 3. 行业词规范化（可选字典）
-
-```text
-autosar → AUTOSAR
-rag → RAG
-```
-
----
-
-## ✔ 4. 时间归一化（optional NLP）
-
-```text
-最近 → timestamp
-昨天 → date
-```
-
----
-
-## 🧠 本质
-
-> Normalizer = “语言标准化器”
-
----
-
-# ⚙️ 5. Dedup / Conflict Resolver（最复杂的一层）
-
-这一层分三块：
-
----
-
-# 🟡 5.1 Dedup（纯 embedding）
-
-## ✔ 技术
-
-* embedding cosine similarity
-* Qdrant built-in search
-
----
-
-## ✔ 逻辑
-
-```python
-if similarity > 0.90:
-    update_timestamp()
-    merge_metadata()
-```
-
----
-
-## ✔ 不需要LLM
-
----
-
-# 🟠 5.2 Conflict Detection（embedding + rule）
-
-## 示例：
-
-```text
-用户喜欢Java
-用户不喜欢Java
-```
-
----
-
-## 方法：
-
-### 1️⃣ embedding similarity high
-
-### 2️⃣ polarity opposite (NLP sentiment / rule)
-
----
-
-## NLP工具
-
-* sentiment classifier
-* dependency polarity detection
-
----
-
-## 输出
-
-```json
-{
-  "conflict": true,
-  "candidates": [...]
-}
-```
-
----
-
-# 🔴 5.3 Conflict Resolution（ONLY LLM）
-
-## ❗ 只有这里需要LLM
-
----
-
-## 触发条件：
-
-* strong contradiction
-* high importance memory
-* ambiguous preference change
-
----
-
-## LLM做什么：
-
-```text
-Which memory is correct or updated?
-```
-
----
-
-## 输出：
-
-```json
-{
-  "final_memory": "用户现在不使用Java",
-  "status": "override old memory"
-}
-```
-
----
-
-# 🧠 总体职责分配（最重要）
-
----
-
-# ✔ 纯代码（Core logic）
-
-* KEEP / REJECT routing
-* dedup threshold
-* queue handling
-* merge rules
-* timestamp update
-
----
-
-# ✔ NLP（结构理解）
-
-* NER
-* dependency parsing
-* sentiment
-* sentence split
-* entity extraction
-
----
-
-# ✔ SLM（语义门控）
-
-* keep decision
-* type classification
-* coarse normalization
-
----
-
-# ✔ LLM（极少）
-
-* conflict resolution
-* ambiguous memory correction
-* rare semantic arbitration
-
----
-
-# 🚀 一句话总结整个设计
-
-> Phase 1 的核心不是“用模型做记忆”，而是“用代码 + NLP 搭建骨架，用 SLM 做门控，用 LLM 只解决语义冲突”。
-
----
-
-如果你下一步要继续优化，我建议你看两个关键升级点：
-
----
-
-## ① Memory Unit 的“合并策略”（防爆炸核心）
-
-## ② Conflict Resolver 的“记忆优先级系统”（决定系统是否稳定）
-
-这两个是 Phase 1 → Phase 2 的分水岭。

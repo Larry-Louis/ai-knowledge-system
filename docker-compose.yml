@@ -12,9 +12,8 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
-    # 容器间通信走内部网络，不需要 host 端口映射
-    expose:
-      - "11434"
+    ports:
+      - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
     restart: unless-stopped
