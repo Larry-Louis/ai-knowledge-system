@@ -63,6 +63,9 @@ Qdrant (:6333)    DeepSeek API (云端)
 - **前端**: Open WebUI
 - **容器化**: Docker Compose
 
+## 系统演进
+- 2026-06-09: 架构已完成全面解耦与配置化重构，支持动态模型路由与自动化索引维护。
+
 ---
 
 # Phase 1 — Memory Admission System
