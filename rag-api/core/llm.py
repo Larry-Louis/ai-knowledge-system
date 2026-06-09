@@ -1,34 +1,29 @@
 from abc import ABC, abstractmethod
-
 import httpx
-
 from core.config import Config
-
 
 class LLMClient(ABC):
     @abstractmethod
     def chat(self, messages: list[dict]) -> str:
         raise NotImplementedError
 
-
 class OllamaClient(LLMClient):
-    def __init__(self):
+    def __init__(self, model: str | None = None):
         self.base_url = Config.OLLAMA_BASE_URL
-        self.model = Config.OLLAMA_MODEL
+        self.model = model or Config.OLLAMA_MODEL
 
     def chat(self, messages: list[dict]) -> str:
         payload = {
-            "model": self.model,
-            "messages": [
-                {"role": m["role"], "content": m["content"]} for m in messages
+            'model': self.model,
+            'messages': [
+                {'role': m['role'], 'content': m['content']} for m in messages
             ],
-            "stream": False,
+            'stream': False,
         }
         with httpx.Client(timeout=900) as client:
-            resp = client.post(f"{self.base_url}/api/chat", json=payload)
+            resp = client.post(f'{self.base_url}/api/chat', json=payload)
             resp.raise_for_status()
-            return resp.json()["message"]["content"]
-
+            return resp.json()['message']['content']
 
 class DeepSeekClient(LLMClient):
     def __init__(self, model: str | None = None):
@@ -38,54 +33,65 @@ class DeepSeekClient(LLMClient):
         self.last_reasoning = None
 
     def chat(self, messages: list[dict]) -> str:
-        payload = {"model": self.model, "messages": messages}
+        payload = {'model': self.model, 'messages': messages}
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json',
         }
         with httpx.Client(timeout=120) as client:
             resp = client.post(
-                f"{self.base_url}/chat/completions",
+                f'{self.base_url}/chat/completions',
                 json=payload,
                 headers=headers,
             )
             resp.raise_for_status()
-            msg = resp.json()["choices"][0]["message"]
-            self.last_reasoning = msg.get("reasoning_content")
-            return msg["content"]
-
+            msg = resp.json()['choices'][0]['message']
+            self.last_reasoning = msg.get('reasoning_content')
+            return msg['content']
 
 class OpenAIClient(LLMClient):
-    def __init__(self):
+    def __init__(self, model: str | None = None):
         self.api_key = Config.OPENAI_API_KEY
         self.base_url = Config.OPENAI_BASE_URL
-        self.model = Config.OPENAI_MODEL
+        self.model = model or Config.OPENAI_MODEL
 
     def chat(self, messages: list[dict]) -> str:
-        payload = {"model": self.model, "messages": messages}
+        payload = {'model': self.model, 'messages': messages}
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json',
         }
         with httpx.Client(timeout=120) as client:
             resp = client.post(
-                f"{self.base_url}/chat/completions",
+                f'{self.base_url}/chat/completions',
                 json=payload,
                 headers=headers,
             )
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
-
+            return resp.json()['choices'][0]['message']['content']
 
 class LLMFactory:
     @staticmethod
     def get(provider: str | None = None, model: str | None = None) -> LLMClient:
+        # Dynamic Routing Logic
+        if model:
+            if model in ['deepseek-r1:8b', 'qwen3.5:9b']:
+                return OllamaClient(model=model)
+            elif 'deepseek' in model:
+                return DeepSeekClient(model=model)
+            else:
+                return OpenAIClient(model=model)
+        
+        # Default fallback logic
         provider = provider or Config.LLM_PROVIDER
-        if provider == "ollama":
+        
+        # 强制逻辑：如果是 deepseek provider，绝不降级
+        if provider == 'deepseek':
+            return DeepSeekClient()
+        elif provider == 'ollama':
             return OllamaClient()
-        elif provider == "deepseek":
-            return DeepSeekClient(model=model)
-        elif provider == "openai":
+        elif provider == 'openai':
             return OpenAIClient()
         else:
-            raise ValueError(f"Unknown LLM provider: {provider}")
+            # Final fallback to deepseek-v4-flash
+            return DeepSeekClient(model='deepseek-v4-flash')

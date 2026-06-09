@@ -1,12 +1,20 @@
 services:
 
   open-webui:
-    image: ghcr.io/open-webui/open-webui:main
+    image: ghcr.io/open-webui/open-webui:latest
     container_name: open-webui
     ports:
-      - "8080:8080"
+      - "8088:8080"
     volumes:
       - webui-data:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_SECRET_KEY=auto
+      - RAG_EMBEDDING_ENGINE=ollama
+      - RAG_OLLAMA_BASE_URL=http://ollama:11434
+      - RAG_EMBEDDING_MODEL=nomic-embed-text:latest
+    depends_on:
+      - ollama
     restart: unless-stopped
 
   ollama:

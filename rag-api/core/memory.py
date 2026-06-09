@@ -143,7 +143,11 @@ class MemoryManager:
         if not _is_auto_task(last_user_msg):
             self.qdrant.upsert_memory(session_id, "user", last_user_msg, embedding, layer=active_role)
 
-        llm = LLMFactory.get(model=getattr(self, '_model_override', None))
+        model_override = getattr(self, '_model_override', None)
+        if not model_override and active_role in ['story', 'docreader']:
+            llm = LLMFactory.get(provider='deepseek', model='deepseek-v4-flash')
+        else:
+            llm = LLMFactory.get(model=model_override)
         response = llm.chat(final_prompt)
 
         self.sessions.add_message(session_id, "assistant", response)

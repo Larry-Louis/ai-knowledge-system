@@ -19,6 +19,7 @@ GLOBAL_SESSION = "__global__"
 class QdrantStore:
     def __init__(self):
         self.client = QdrantClient(url=Config.QDRANT_URL)
+        self._ensure_indexes()
         self.collection = Config.QDRANT_MEMORY_COLLECTION
         self._ensure_collection()
 
@@ -211,3 +212,14 @@ class QdrantStore:
         self.upsert_memory(
             GLOBAL_SESSION, "system", summary, embedding, point_type="summary"
         )
+
+    def _ensure_indexes(self):
+        try:
+            from qdrant_client import models
+            self.client.create_payload_index(
+                collection_name=Config.QDRANT_MEMORY_COLLECTION,
+                field_name='timestamp',
+                field_schema=models.PayloadSchemaType.INTEGER
+            )
+        except Exception:
+            pass
