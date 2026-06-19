@@ -130,6 +130,7 @@ class MemoryManager:
         )
         self.last_prompt = {
             "session_id": session_id,
+            "debug_info": {"related": len(all_memories), "summary": bool(summary), "docs": len(doc_chunks)},
             "model": model or Config.DEEPSEEK_MODEL,
             "timestamp": int(time.time()),
             "messages": final_prompt,
@@ -163,6 +164,9 @@ class MemoryManager:
             layer=active_role,
         )
         submit_turn(event)
+        if Config.TEST_MODE:
+            from core.logger import pipeline_logger
+            pipeline_logger.debug(f"Turn {event.turn_id} submitted: user_input={last_user_msg[:50]}, assistant_response={response[:50]}")
 
         msg_count = self.sessions.get_message_count(session_id)
         if msg_count > 0 and msg_count % (Config.SUMMARY_INTERVAL * 2) == 0:

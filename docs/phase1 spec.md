@@ -301,7 +301,14 @@ _worker_thread.start()
 
 ---
 
-### [S1-4a] 拼接轮次文本
+### [S1-4a] 拼接轮次文本并基础评估
+
+#### [S1-4-Rule] 综合得分评估 -- `core/rule_evaluator.py`
+
+- **结构探测**: 检测 `INSTRUCTION_KEYWORDS` (修改/创建...), 检测 ` ``` ` 代码块，计算字符串长度。
+- **倾向分析**: 检测 `POSITIVE_WORDS` 与 `NEGATIVE_WORDS`，并识别 `DISSOLVE_WORDS` (消息删除)。
+- **领域模式匹配**: 检测 `DOMAIN_ACTIONS` 与 `DOMAIN_OBJECTS` 的动宾二元匹配。
+- **拦截策略**: 综合 score < 0.1 时，直接拦截跳过，不调用 SLM，降低后台负载。
 
 ```python
 turn_text = f"用户: {turn_data.get('user','')}\nAI助手: {turn_data.get('assistant','')}"
