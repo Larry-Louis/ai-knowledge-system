@@ -65,9 +65,10 @@ class MemoryManager:
         return "s-" + uuid.uuid4().hex[:16]
 
     def process_request(self, request_messages: list, session_id: str | None = None, model: str | None = None) -> dict:
-        self._model_override = model
-        if not session_id:
-            session_id = self._derive_session_id(request_messages)
+       self._model_override = model
+       if not session_id:
+           session_id = self._derive_session_id(request_messages)
+        # [S0-2] 会话 ID 推导
 
         messages = _to_dicts(request_messages)
 
@@ -76,7 +77,8 @@ class MemoryManager:
             raise ValueError("No user message found in request")
         last_user_msg = user_msgs[-1]["content"]
 
-        embedding = EmbeddingService.embed(last_user_msg)
+       embedding = EmbeddingService.embed(last_user_msg)
+        # [S0-3] 用户消息向量化
         active_role = get_active_role()
 
         # Search layers: "core" always + active role layer
@@ -88,9 +90,10 @@ class MemoryManager:
         self._last_session_id = session_id
 
         related = self.qdrant.search_memories(
-            embedding, session_id, Config.MEMORY_TOP_K
-        )
-        global_memories = self.qdrant.search_global_memories(embedding, top_k=6, layers=search_layers)
+           embedding, session_id, Config.MEMORY_TOP_K
+       )
+       global_memories = self.qdrant.search_global_memories(embedding, top_k=6, layers=search_layers)
+        # [S0-4] 三重记忆检索
 
         # 新会话时带 2 条最近跨会话记忆作为预热，同会话时跳过（因为 messages 已有完整历史）
         recent_global = []
@@ -100,14 +103,16 @@ class MemoryManager:
             )
 
         all_memories = _merge_memories(related, global_memories + recent_global)
-        summary = self.qdrant.get_summary()
+       summary = self.qdrant.get_summary()
+        # [S0-5] 记忆合并去重，[S0-6] 摘要检索 + 文档检索 (get_summary 在前)
 
         # Search ONLY actively mounted documents for relevant context
         # Core write mode: check if user message contains a save trigger
-        from core.state import get_active_doc_ids, get_core_write_mode
-        if get_core_write_mode():
-            for trigger in Config.CORE_TRIGGERS:
-                if trigger in last_user_msg:
+       from core.state import get_active_doc_ids, get_core_write_mode
+       if get_core_write_mode():
+           for trigger in Config.CORE_TRIGGERS:
+               if trigger in last_user_msg:
+        # [S0-7] 核心写入触发（可选）
                     core_text = last_user_msg.split(trigger, 1)[1].strip()
                     if core_text:
                         core_emb = EmbeddingService.embed(core_text)
@@ -123,11 +128,12 @@ class MemoryManager:
             doc_chunks = self.qdrant.search_documents(embedding, top_k=4, doc_ids=list(active_docs))
 
         final_prompt = build_prompt(
-            request_messages=messages,
-            world_summary=summary,
-            related_memories=all_memories,
-            document_chunks=doc_chunks,
-        )
+           request_messages=messages,
+           world_summary=summary,
+           related_memories=all_memories,
+           document_chunks=doc_chunks,
+       )
+        # [S0-8] 构建 RAG 提示
         self.last_prompt = {
             "session_id": session_id,
             "debug_info": {"related": len(all_memories), "summary": bool(summary), "docs": len(doc_chunks)},
@@ -151,26 +157,29 @@ class MemoryManager:
             llm = LLMFactory.get(model=model_override)
         response = llm.chat(final_prompt)
 
-        self.sessions.add_message(session_id, "assistant", response)
+       self.sessions.add_message(session_id, "assistant", response)
+        # [S0-9] LLM 调用
         if not _is_auto_task(response):
-            resp_embedding = EmbeddingService.embed(response)
-            self.qdrant.upsert_memory(session_id, "assistant", response, resp_embedding, layer=active_role)
+           resp_embedding = EmbeddingService.embed(response)
+           self.qdrant.upsert_memory(session_id, "assistant", response, resp_embedding, layer=active_role)
 
-        # Stage 0: Submit Turn to async memory pipeline
-        event = MemoryEvent(
-            user_msg=last_user_msg,
-            assistant_msg=response,
-            session_id=session_id,
-            layer=active_role,
-        )
-        submit_turn(event)
+       # Stage 0: Submit Turn to async memory pipeline
+       event = MemoryEvent(
+           user_msg=last_user_msg,
+           assistant_msg=response,
+           session_id=session_id,
+           layer=active_role,
+       )
+       submit_turn(event)
+        # [S0-10] [S0-11] 同步写入 Qdrant；[S0-12] 提交异步管道任务
         if Config.TEST_MODE:
             from core.logger import pipeline_logger
             pipeline_logger.debug(f"Turn {event.turn_id} submitted: user_input={last_user_msg[:50]}, assistant_response={response[:50]}")
 
         msg_count = self.sessions.get_message_count(session_id)
-        if msg_count > 0 and msg_count % (Config.SUMMARY_INTERVAL * 2) == 0:
-            self._generate_summary(session_id)
+       if msg_count > 0 and msg_count % (Config.SUMMARY_INTERVAL * 2) == 0:
+           self._generate_summary(session_id)
+        # [S0-13] 条件性摘要生成
 
         reasoning = getattr(llm, 'last_reasoning', None)
         return {"response": response, "session_id": session_id, "reasoning": reasoning}

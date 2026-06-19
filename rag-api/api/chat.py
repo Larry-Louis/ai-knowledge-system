@@ -72,6 +72,7 @@ def _build_chat_response(result: dict, request: ChatCompletionRequest) -> dict:
 @router.post("/v1/chat/completions")
 def chat_completions(request: ChatCompletionRequest):
     try:
+        # [S0-1] API 入口解析
         model_str = request.model if request.model != "default" else ""
         
         # 动态读取配置
