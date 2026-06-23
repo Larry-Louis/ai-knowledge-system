@@ -75,6 +75,12 @@ def chat_completions(request: ChatCompletionRequest):
     """
     [S0-1] API 入口解析:
     接收用户聊天请求，解析模型角色与会话配置，通过 MemoryManager 启动核心记忆处理工作流。
+
+    主要工作流：
+    1. 解析 model 字符串，提取模型名称和角色层（如 "deepseek-v4-flash:story"）
+    2. 根据角色设置 active_role 和 core_write_mode
+    3. 调用 MemoryManager.process_request 执行完整的记忆处理流程
+    4. 构建响应数据，支持流式输出
     """
     try:
         model_str = request.model if request.model != "default" else ""

@@ -73,6 +73,20 @@ class OpenAIClient(LLMClient):
 class LLMFactory:
     @staticmethod
     def get(provider: str | None = None, model: str | None = None) -> LLMClient:
+        """
+        [S0-9] LLM 工厂方法：根据 provider 和 model 返回对应的 LLM 客户端
+
+        主要工作流：
+        1. 如果指定了 model，根据模型名称选择客户端：
+           - deepseek-r1:8b / qwen3.5:9b -> OllamaClient
+           - 包含 "deepseek" -> DeepSeekClient
+           - 其他 -> OpenAIClient
+        2. 如果未指定 model，根据 provider 选择：
+           - deepseek -> DeepSeekClient
+           - ollama -> OllamaClient
+           - openai -> OpenAIClient
+           - 默认回退到 deepseek-v4-flash
+        """
         # Dynamic Routing Logic
         if model:
             if model in ['deepseek-r1:8b', 'qwen3.5:9b']:

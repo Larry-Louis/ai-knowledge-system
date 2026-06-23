@@ -3,7 +3,14 @@ import os
 
 
 def parse_document(text: str) -> list[dict]:
-    """Parse full document text into sequentially numbered chunks (no chapter detection)."""
+    """
+    将完整文档文本解析为顺序编号的块（不检测章节）
+
+    主要工作流：
+    1. 调用 chunk_by_paragraphs 按段落分割文本，每块 ≤ 1000 字符
+    2. 为每个块分配顺序编号（chapter 从 1 开始）
+    3. 返回包含 chapter、title、chunk、chunks_total、content 的字典列表
+    """
     chunks = chunk_by_paragraphs(text, max_chars=1000)
     return [
         {
@@ -55,7 +62,15 @@ def split_by_chapter(text: str) -> list[dict]:
 
 
 def chunk_by_paragraphs(text: str, max_chars: int = 1000) -> list[str]:
-    """Split text into chunks by paragraph boundaries, each ≤ max_chars."""
+    """
+    按段落边界将文本分割为块，每块 ≤ max_chars
+
+    主要工作流：
+    1. 按换行符分割为段落
+    2. 逐段合并，如果合并后超过 max_chars 则开始新块
+    3. 如果单个段落超过 max_chars，则在该段落内截断
+    4. 返回字符串列表
+    """
     # Split into paragraphs (by double or single newlines)
     paras = [p.strip() for p in re.split(r'\n\s*\n|\n(?!\n)', text) if p.strip()]
     if not paras:

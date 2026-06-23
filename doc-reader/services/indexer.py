@@ -41,7 +41,14 @@ class DocumentIndexer:
         chapters: list[dict],
         embeddings: list[list[float]],
     ) -> int:
-        """Store all chapters of a document into Qdrant."""
+        """
+        将文档的所有章节存储到 Qdrant
+
+        主要工作流：
+        1. 为每个章节创建 PointStruct，包含文档 ID、标题、章节号、内容、时间戳、类型
+        2. 批量 upsert 到 documents 集合
+        3. 返回索引的章节数
+        """
         points = []
         for i, (ch, emb) in enumerate(zip(chapters, embeddings)):
             points.append(
@@ -121,7 +128,14 @@ class DocumentIndexer:
     def search_all(
         self, doc_id: str, embedding: list[float], top_k: int = 8
     ) -> list[dict]:
-        """Search across ALL paragraphs, return matches with their sequence numbers."""
+        """
+        搜索文档中所有语义相关的段落
+
+        主要工作流：
+        1. 在 documents 集合中搜索指定文档 ID 且类型为 chapter 的点
+        2. 按向量相似度排序
+        3. 返回最多 top_k 条结果，包含章节号、标题、内容、相似度分数
+        """
         results = self.client.query_points(
             collection_name=COLLECTION,
             query=embedding,

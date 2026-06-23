@@ -10,7 +10,15 @@ MAX_PROMPT_CHARS = 500000  # ~125K tokens, safe for 1M token limit
 
 
 def chat(messages: list[dict], model: str | None = None) -> str:
-    """Call DeepSeek chat API and return response content."""
+    """
+    调用 DeepSeek 聊天 API 并返回响应内容
+
+    主要工作流：
+    1. 计算消息总长度，如果超过 MAX_PROMPT_CHARS（500K 字符），则截断最后一条用户消息
+    2. 构建 API 请求（模型、消息）
+    3. 调用 DeepSeek /chat/completions 端点
+    4. 返回助手消息内容
+    """
     # Truncate messages to stay within context limit
     total = sum(len(m.get("content", "")) for m in messages)
     if total > MAX_PROMPT_CHARS:

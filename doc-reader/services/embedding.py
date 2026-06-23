@@ -6,7 +6,14 @@ OLLAMA_EMBEDDING_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
 
 
 def embed(text: str) -> list[float]:
-    """Embed text using Ollama embedding API."""
+    """
+    文本向量化：使用 Ollama 嵌入 API 将文本转换为向量
+
+    主要工作流：
+    1. 验证输入文本非空
+    2. 调用 Ollama /api/embed 端点
+    3. 返回第一个嵌入向量
+    """
     if not text or not text.strip():
         raise ValueError("不能向量化空文本")
     payload = {"model": OLLAMA_EMBEDDING_MODEL, "input": text}

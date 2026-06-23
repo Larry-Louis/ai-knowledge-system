@@ -73,7 +73,18 @@ def health():
 
 @app.post("/documents/upload")
 async def upload_document(file: UploadFile):
-    """Upload a document (.txt or .pdf), parse into chapters, and index into Qdrant."""
+    """
+    上传文档（.txt 或 .pdf），解析为章节，向量化后索引到 Qdrant
+
+    主要工作流：
+    1. 确定文件类型（txt 或 pdf）
+    2. 提取文本内容（PDF 使用 PyMuPDF，TXT 支持 UTF-8/GBK）
+    3. 验证文本有效性
+    4. 解析为顺序编号的块（每块 ≤ 1000 字符）
+    5. 为每个块生成向量嵌入
+    6. 将块索引到 Qdrant 的 documents 集合
+    7. 返回文档 ID、标题、块数等信息
+    """
     # Determine file type
     fname = file.filename.lower()
     is_pdf = fname.endswith(".pdf")
@@ -146,7 +157,18 @@ def list_documents():
 
 @app.post("/documents/{doc_id}/chat", response_model=ChatResponse)
 def chat_with_document(doc_id: str, req: ChatRequest):
-    """Chat with a document. AI automatically searches across all chapters for relevant context."""
+    """
+    与文档对话：AI 自动搜索所有章节的相关内容并生成回答
+
+    主要工作流：
+    1. 将用户消息向量化
+    2. 在文档中搜索语义相关的块（top_k=8）
+    3. 按段落编号排序以保持时序顺序
+    4. 构建上下文（最多 6000 字符）
+    5. 调用 LLM 生成回答
+    6. 去重来源段落编号
+    7. 返回回答和来源列表
+    """
     # Embed user message
     query_embedding = embed(req.message)
 

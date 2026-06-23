@@ -51,7 +51,15 @@ class PersistentQueue:
         conn.close()
 
     def enqueue(self, data: dict, max_retries: int = 3) -> str:
-        """Add an item to the queue. Returns item ID."""
+        """
+        [S1-3] 入队：将记忆管道事件添加到持久化队列
+
+        主要工作流：
+        1. 生成唯一 item_id
+        2. 将数据序列化为 JSON
+        3. 插入到 SQLite 队列表中，状态为 pending
+        4. 返回 item_id
+        """
         item_id = str(uuid.uuid4())
         now = time.time()
         conn = self._get_conn()
@@ -63,7 +71,14 @@ class PersistentQueue:
         return item_id
 
     def dequeue(self, batch_size: int = 1) -> list[dict]:
-        """Get next pending items and mark them as processing."""
+        """
+        [S1-3] 出队：获取下一个待处理事件并标记为 processing
+
+        主要工作流：
+        1. 按创建时间升序获取指定数量的 pending 事件
+        2. 将状态更新为 processing
+        3. 返回事件列表（包含 id、data、retries）
+        """
         conn = self._get_conn()
         with conn:
             rows = conn.execute(
@@ -81,7 +96,13 @@ class PersistentQueue:
         return [{"id": r["id"], "data": json.loads(r["data"]), "retries": r["retries"]} for r in rows]
 
     def mark_done(self, item_id: str):
-        """Mark an item as completed."""
+        """
+        [S1-3] 标记事件为完成
+
+        主要工作流：
+        1. 将指定事件的状态更新为 done
+        2. 记录完成时间
+        """
         conn = self._get_conn()
         conn.execute(
             "UPDATE queue SET status = 'done', updated_at = ? WHERE id = ?",
@@ -90,7 +111,15 @@ class PersistentQueue:
         conn.commit()
 
     def mark_failed(self, item_id: str, error: str):
-        """Mark as failed. Will retry if retries < max_retries."""
+        """
+        [S1-3] 标记事件为失败，支持重试
+
+        主要工作流：
+        1. 获取当前重试次数和最大重试次数
+        2. 如果重试次数未达上限，将状态重置为 pending（可重新处理）
+        3. 如果已达上限，标记为 dead
+        4. 记录错误信息
+        """
         conn = self._get_conn()
         row = conn.execute("SELECT retries, max_retries FROM queue WHERE id = ?", (item_id,)).fetchone()
         if not row:
@@ -107,7 +136,13 @@ class PersistentQueue:
         conn.commit()
 
     def recover_stale(self, timeout: int = 30):
-        """Recover items stuck in 'processing' status (e.g. after crash)."""
+        """
+        [S1-1] 宕机恢复：将卡在 processing 状态的事件重置为 pending
+
+        主要工作流：
+        1. 查找所有状态为 processing 且更新时间早于 timeout 秒前的事件
+        2. 将其状态重置为 pending，以便重新处理
+        """
         conn = self._get_conn()
         cutoff = time.time() - timeout
         conn.execute(
@@ -125,7 +160,13 @@ class PersistentQueue:
         return {r["status"]: r["cnt"] for r in rows}
 
     def cleanup(self, max_age: int = 86400):
-        """Remove completed items older than max_age seconds."""
+        """
+        [S1-2] 定期清理：删除超过指定时间的已完成/死亡事件
+
+        主要工作流：
+        1. 计算截止时间（当前时间 - max_age）
+        2. 删除所有状态为 done 或 dead 且更新时间早于截止时间的记录
+        """
         conn = self._get_conn()
         cutoff = time.time() - max_age
         conn.execute(

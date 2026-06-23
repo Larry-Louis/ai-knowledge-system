@@ -9,6 +9,15 @@ def build_prompt(
     related_memories: list[dict] | None = None,
     document_chunks: list[dict] | None = None,
 ) -> list[dict]:
+    """
+    [S0-8] 构建 RAG 提示
+
+    主要工作流：
+    1. 从请求消息中提取系统提示（如果有），否则使用默认系统提示
+    2. 调用 _build_system_content 将世界观摘要、相关记忆、文档片段附加到系统提示中
+    3. 将其他用户/助手消息按原样添加到最终消息列表中
+    4. 返回完整的消息列表供 LLM 调用
+    """
     system_msg = None
     other_messages = []
     for m in request_messages:

@@ -116,6 +116,16 @@ def _store_mu(content: str, mu_type: str, mu_tag: str, layer_type: str,
 
 
 def _process_turn(turn_data: dict, qdrant: QdrantStore):
+   """
+   [S1-4] 异步记忆处理管道核心函数
+
+   主要工作流：
+   [S1-4a] 拼接对话文本：将用户输入和 AI 回复拼接成完整对话文本
+   [S1-4-Rule] 综合得分评估：使用规则评估器（结构得分、极性得分、领域匹配）进行轻量级过滤
+   [S1-4b] SLM 验证：调用小型语言模型验证对话内容是否值得记忆
+   [S1-4c] DecisionMaker.classify_mu：根据 SLM 结果应用重要性-置信度决策矩阵
+   [S1-4e] _store_mu：将每个摘要存储为记忆单元（memory_unit），包含类型、标签、层、重要性、置信度等信息
+   """
    # [S1-4a] 拼接对话文本
    user_input = turn_data.get("user", "")
    turn_text = f'用户: {user_input}\nAI助手: {turn_data.get("assistant","")}'

@@ -65,6 +65,26 @@ class MemoryManager:
         return "s-" + uuid.uuid4().hex[:16]
 
     def process_request(self, request_messages: list, session_id: str | None = None, model: str | None = None) -> dict:
+        """
+        [S0-2] 至 [S0-13] 核心记忆处理工作流
+
+        主要工作流：
+        [S0-2] 会话 ID 推导：如果没有提供 session_id，则根据第一条用户消息生成稳定的会话 ID
+        [S0-3] 用户消息向量化：使用 EmbeddingService 将最后一条用户消息转换为向量
+        [S0-4] 三重记忆检索：
+            - 当前会话记忆 (search_memories)
+            - 全局跨会话记忆 (search_global_memories)
+            - 新会话时额外获取最近跨会话记忆 (get_recent_global_memories)
+        [S0-5] 记忆合并去重：合并当前会话记忆和全局记忆，去重后最多保留 12 条
+        [S0-6] 摘要检索 + 文档检索：获取世界观摘要和活跃文档的相关片段
+        [S0-7] 核心写入触发（可选）：如果 core_write_mode 启用且消息包含触发词，将后续文本写入核心层
+        [S0-8] 构建 RAG 提示：将系统提示、世界观摘要、相关记忆、文档片段组合成最终提示
+        [S0-9] LLM 调用：根据角色选择模型（story/docreader 使用 deepseek-v4-flash，其他使用默认模型）
+        [S0-10] 同步写入 Qdrant：将用户消息和助手回复写入记忆存储
+        [S0-11] 同步写入 Qdrant（同上）
+        [S0-12] 提交异步管道任务：将本轮对话提交到异步记忆处理管道 (MemoryEvent)
+        [S0-13] 条件性摘要生成：每 SUMMARY_INTERVAL*2 条消息触发一次世界观摘要生成
+        """
         self._model_override = model
         if not session_id:
             # [S0-2] 会话 ID 推导

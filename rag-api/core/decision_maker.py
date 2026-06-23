@@ -15,7 +15,19 @@ class DecisionMaker:
 
     @classmethod
     def classify_mu(cls, result: Dict[str, Any]) -> Dict[str, Any]:
-        """Apply importance-confidence decision matrix."""
+        """
+        [S1-4c] 应用重要性-置信度决策矩阵
+
+        主要工作流：
+        1. 从 SLM 验证结果中提取 importance 和 confidence 值（范围 0-1）
+        2. 根据阈值判断是否保留 (keep)：
+           - importance >= 0.4 时保留
+           - importance >= 0.7 且 confidence >= 0.7 时标记为 "golden"
+           - importance >= 0.7 时标记为 "review"
+           - 否则标记为 "low"
+        3. 根据 mu_type 映射到 layer_type（ENTITY/RELATION -> semantic, EVENT/TASK -> episodic）
+        4. 返回包含 keep、type、tag、layer_type、importance、confidence、store_priority、summary 的字典
+        """
         importance = max(0.0, min(1.0, result.get("importance", 0.0)))
         confidence = max(0.0, min(1.0, result.get("confidence", 0.0)))
         keep = importance >= cls.IMPORTANCE_KEEP
