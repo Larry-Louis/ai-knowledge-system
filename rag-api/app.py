@@ -129,3 +129,7 @@ def list_models():
             }
         ],
     }
+from core.memory_pipeline import start_pipeline
+@app.on_event("startup")
+def startup_event():
+    start_pipeline()

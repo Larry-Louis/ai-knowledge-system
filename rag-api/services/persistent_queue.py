@@ -7,6 +7,7 @@ import sqlite3
 import threading
 import time
 import uuid
+import os
 
 DB_PATH = "/app/data/memory_queue.db"
 
@@ -16,7 +17,6 @@ class PersistentQueue:
         self._local = threading.local()
         self._db_path = db_path
         # Ensure directory exists
-        import os
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         self._init_db()
 
@@ -65,19 +65,19 @@ class PersistentQueue:
     def dequeue(self, batch_size: int = 1) -> list[dict]:
         """Get next pending items and mark them as processing."""
         conn = self._get_conn()
-        rows = conn.execute(
-            "SELECT * FROM queue WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?",
-            (batch_size,),
-        ).fetchall()
-        if not rows:
-            return []
-        ids = [r["id"] for r in rows]
-        now = time.time()
-        conn.execute(
-            f"UPDATE queue SET status = 'processing', updated_at = ? WHERE id IN ({','.join('?' for _ in ids)})",
-            (now, *ids),
-        )
-        conn.commit()
+        with conn:
+            rows = conn.execute(
+                "SELECT * FROM queue WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?",
+                (batch_size,),
+            ).fetchall()
+            if not rows:
+                return []
+            ids = [r["id"] for r in rows]
+            now = time.time()
+            conn.execute(
+                f"UPDATE queue SET status = 'processing', updated_at = ? WHERE id IN ({','.join('?' for _ in ids)})",
+                (now, *ids),
+            )
         return [{"id": r["id"], "data": json.loads(r["data"]), "retries": r["retries"]} for r in rows]
 
     def mark_done(self, item_id: str):

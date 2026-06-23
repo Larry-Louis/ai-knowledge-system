@@ -101,11 +101,11 @@ POST /v1/chat/completions
 
 系统在 LLM 调用前执行 **三种并行查询**：
 
-| 查询 | 函数 | 行号 | 参数 |
-|------|------|------|------|
-| 会话记忆 | `search_memories()` | 73 | 仅当前 `session_id`，`type=memory`，top_k=8 |
-| 全局记忆 | `search_global_memories()` | 100 | 按 `layer IN [core, active_role]` 过滤，top_k=6，core 层 x1.05 |
-| 近期跨会话 | `get_recent_global_memories()` | 127 | **仅新会话触发**，排除当前 `session_id`，每角色层最多 2 条 |
+| 查询    | 函数                             | 行号  | 参数                                                       |
+| ----- | ------------------------------ | --- | -------------------------------------------------------- |
+| 会话记忆  | `search_memories()`            | 73  | 仅当前 `session_id`，`type=memory`，top_k=8                   |
+| 全局记忆  | `search_global_memories()`     | 100 | 按 `layer IN [core, active_role]` 过滤，top_k=6，core 层 x1.05 |
+| 近期跨会话 | `get_recent_global_memories()` | 127 | **仅新会话触发**，排除当前 `session_id`，每角色层最多 2 条                  |
 
 **搜索层（layer）策略：**
 - 始终包含 `core` 层（核心记忆始终可检索）

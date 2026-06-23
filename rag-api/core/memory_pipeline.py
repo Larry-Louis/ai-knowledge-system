@@ -18,6 +18,7 @@ from core.decision_maker import DecisionMaker
 from core.text_utils import normalize, detect_polarity, is_duplicate, extract_mus, slm_validate
 from core.rule_evaluator import probe_structure_score, detect_polarity_score, match_domain_pattern
 from core.logger import pipeline_logger
+from core.config import Config
 from services.embedding import EmbeddingService
 from services.qdrant_store import QdrantStore
 from services.persistent_queue import PersistentQueue
@@ -46,9 +47,19 @@ class MemoryEvent:
 
 
 _queue = PersistentQueue()
+_processed_turns = set()
+_turn_lock = threading.Lock()
 
 
 def submit_turn(event: MemoryEvent):
+    global _processed_turns
+    with _turn_lock:
+        if event.turn_id in _processed_turns:
+            pipeline_logger.warning(f"Turn {event.turn_id} already submitted, ignoring.")
+            return
+        _processed_turns.add(event.turn_id)
+        if len(_processed_turns) > 1000: _processed_turns.clear()
+
     _queue.enqueue(event.to_dict())
 
 
@@ -66,7 +77,8 @@ def _worker():
             last_cleanup = now
 
         # [S1-3] 出队
-        items = _queue.dequeue(batch_size=1)
+        with _turn_lock:
+            items = _queue.dequeue(batch_size=1)
         if not items:
             time.sleep(2)
             continue
@@ -75,6 +87,8 @@ def _worker():
         turn_data = item['data']
 
         try:
+            # 简单校验机制
+            pipeline_logger.debug(f"Processing turn {turn_data.get('turn_id', 'unknown')} from session {turn_data.get('session_id', 'unknown')}")
             _process_turn(turn_data, qdrant)
             _queue.mark_done(item['id'])
         except Exception as e:
@@ -105,19 +119,26 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
    # [S1-4a] 拼接对话文本
    user_input = turn_data.get("user", "")
    turn_text = f'用户: {user_input}\nAI助手: {turn_data.get("assistant","")}'
+   pipeline_logger.debug(f"Processing turn {turn_data.get('turn_id', 'unknown')} with system version: {Config.SYSTEM_VERSION}")
    
    # [S1-4-Rule] 综合得分评估：保安系统入口，在SLM评估前进行轻量级过滤。
    score = probe_structure_score(user_input, is_user_turn=True)
    score += detect_polarity_score(turn_text) + match_domain_pattern(turn_text)
    
    # 拦截策略: 如果非常确定是垃圾(<0.1)则跳过
-   if score < 0.1: return
-   pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')}: score={score}, user_input={user_input[:100]}")
+   if score < 0.1:
+       pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} dropped. Score: {score:.2f}")
+       return
+   pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} processed. Score: {score:.2f}")
+   pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')} full details: score={score}, user_input={user_input}")
 
    # [S1-4b] SLM 验证前检查，将检查结果和原始信息记录至日志。
    result = slm_validate(turn_text)
    if not result.get('keep', False): return
+   
+   pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} SLM validation successful. Keep: {result.get('keep')}")
    pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')}: SLM validation result={result}")
+   pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')} full AI Response: {turn_data.get('assistant')}")
 
    # [S1-4c] DecisionMaker.classify_mu(SLM 结果)
    summaries = result.get('summaries') or []
@@ -129,7 +150,14 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
        if s.strip():
            # [S1-4e] _store_mu(每个摘要)
            _store_mu(s.strip(), result.get('type', 'ENTITY'), result.get('tag', 'noise'), result.get('layer_type', 'semantic'), result.get('importance', 0.0), result.get('confidence', 0.0), result.get('store_priority', 'drop'), turn_data, qdrant)
+           pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')}: Summary stored: {s.strip()[:50]}...")
+           pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')}: Full Summary stored: {s.strip()}")
 
 
 _worker_thread = threading.Thread(target=_worker, daemon=True, name='memory-pipeline')
-_worker_thread.start()
+_started = False
+def start_pipeline():
+    global _started
+    if not _started:
+        _worker_thread.start()
+        _started = True
