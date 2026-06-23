@@ -72,6 +72,10 @@ def _build_chat_response(result: dict, request: ChatCompletionRequest) -> dict:
 @router.post("/v1/chat/completions")
 # [S0-1] API 入口解析
 def chat_completions(request: ChatCompletionRequest):
+    """
+    [S0-1] API 入口解析:
+    接收用户聊天请求，解析模型角色与会话配置，通过 MemoryManager 启动核心记忆处理工作流。
+    """
     try:
         model_str = request.model if request.model != "default" else ""
         
