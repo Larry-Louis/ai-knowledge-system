@@ -149,7 +149,7 @@ class MemoryManager:
 
         final_prompt = build_prompt(
            request_messages=messages,
-           world_summary=summary,
+           overall_summary=summary,
            related_memories=all_memories,
            document_chunks=doc_chunks,
        )
@@ -162,7 +162,7 @@ class MemoryManager:
             "timestamp": int(time.time()),
             "messages": final_prompt,
             "related_memories": all_memories,
-            "world_summary": summary,
+            "overall_summary": summary,
             "document_chunks": doc_chunks,
         }
 
@@ -218,11 +218,11 @@ class MemoryManager:
         prompt = [
             {
                 "role": "system",
-                "content": "你是世界观摘要生成器。基于对话历史提取关键设定、角色、事件，生成简洁的世界观摘要。",
+                "content": Config.SUMMARY_SYSTEM_PROMPT,
             },
             {
                 "role": "user",
-                "content": f"基于以下对话内容，生成世界观摘要（包含核心设定、重要角色、关键事件、规则）：\n\n{history_text}",
+                "content": Config.SUMMARY_USER_PROMPT_TEMPLATE.format(history_text=history_text),
             },
         ]
 
