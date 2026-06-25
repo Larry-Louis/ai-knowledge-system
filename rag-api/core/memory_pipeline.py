@@ -16,7 +16,7 @@ import httpx
 from core.prompt_factory import get_memory_validation_prompt, SLM_PROMPT_VERSION
 from core.decision_maker import DecisionMaker
 from core.text_utils import normalize, detect_polarity, is_duplicate, extract_mus, slm_validate
-from core.rule_evaluator import probe_structure_score, detect_polarity_score, match_domain_pattern
+from core.rule_evaluator import calculate_rule_score
 from core.logger import pipeline_logger
 from core.config import Config
 from services.embedding import EmbeddingService
@@ -129,11 +129,11 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
    # [S1-4a] 拼接对话文本
    user_input = turn_data.get("user", "")
    turn_text = f'用户: {user_input}\nAI助手: {turn_data.get("assistant","")}'
+   pipeline_logger.info(f"Full turn text: {turn_text}")
    pipeline_logger.debug(f"Processing turn {turn_data.get('turn_id', 'unknown')} with system version: {Config.SYSTEM_VERSION}")
    
    # [S1-4-Rule] 综合得分评估：保安系统入口，在SLM评估前进行轻量级过滤。
-   score = probe_structure_score(user_input, is_user_turn=True)
-   score += detect_polarity_score(turn_text) + match_domain_pattern(turn_text)
+   score = calculate_rule_score(user_input, turn_text, is_user_turn=True)
    
    # 拦截策略: 如果非常确定是垃圾(<0.1)则跳过
    if score < 0.1:

@@ -185,17 +185,33 @@ class MemoryManager:
            self.qdrant.upsert_memory(session_id, "assistant", response, resp_embedding, layer=active_role)
 
         # Stage 0: Submit Turn to async memory pipeline
-        event = MemoryEvent(
-           user_msg=last_user_msg,
-           assistant_msg=response,
-           session_id=session_id,
-           layer=active_role,
-        )
-        submit_turn(event)
-        # [S0-10] [S0-11] 同步写入 Qdrant；[S0-12] 提交异步管道任务
-        if Config.TEST_MODE:
+        is_auto_task = _is_auto_task(last_user_msg) and _is_auto_task(response)
+        if not is_auto_task:
+            # 普通对话 → 提交到异步记忆处理管道
+            event = MemoryEvent(
+               user_msg=last_user_msg,
+               assistant_msg=response,
+               session_id=session_id,
+               layer=active_role,
+            )
+            submit_turn(event)
+            # [S0-10] [S0-11] 同步写入 Qdrant；[S0-12] 提交异步管道任务
+            if Config.TEST_MODE:
+                from core.logger import pipeline_logger
+                pipeline_logger.debug(f"Turn {event.turn_id} submitted: user_input={last_user_msg[:50]}, assistant_response={response[:50]}")
+        else:
+            # 自动任务（follow-up / tag / title）：不进入记忆管道，只记录简要日志
             from core.logger import pipeline_logger
-            pipeline_logger.debug(f"Turn {event.turn_id} submitted: user_input={last_user_msg[:50]}, assistant_response={response[:50]}")
+            follow_ups = ""
+            try:
+                import json
+                parsed = json.loads(response) if response.startswith("{") else {}
+                if "follow_ups" in parsed:
+                    follow_ups = " | ".join(parsed["follow_ups"][:3])
+            except Exception:
+                pass
+            pipeline_logger.info(f"Auto task completed. Follow-ups: [{follow_ups}]")
+        # [S0-10] [S0-11] 同步写入 Qdrant；[S0-12] 提交异步管道任务
 
         msg_count = self.sessions.get_message_count(session_id)
         if msg_count > 0 and msg_count % (Config.SUMMARY_INTERVAL * 2) == 0:

@@ -1,5 +1,6 @@
 import re
 from core import rule_config
+from core.logger import pipeline_logger
 
 def probe_structure_score(text: str, is_user_turn: bool = True) -> float:
     score = rule_config.ORIGINAL_SCORE
@@ -43,11 +44,13 @@ def match_domain_pattern(text: str) -> float:
         return 0.2  # 单侧命中
     return 0.0
 
-def calculate_rule_score(text: str, is_user_turn: bool = True) -> float:
+def calculate_rule_score(text: str, turn_text: str = None, is_user_turn: bool = True) -> float:
     # 综合得分
-    score = (
-        probe_structure_score(text, is_user_turn) + 
-        detect_polarity_score(text) + 
-        match_domain_pattern(text)
-    )
+    if turn_text is None:
+        turn_text = text
+    pss = probe_structure_score(text, is_user_turn)
+    dps = detect_polarity_score(turn_text)
+    mdp = match_domain_pattern(turn_text)
+    score = pss + dps + mdp
+    pipeline_logger.debug(f"calculate_rule_score: probe_structure={pss}, detect_polarity={dps}, match_domain={mdp}, total={score}")
     return max(0.0, min(1.0, score))
