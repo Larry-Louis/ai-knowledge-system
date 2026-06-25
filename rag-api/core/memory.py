@@ -5,10 +5,11 @@ import hashlib
 from core.config import Config
 from core.state import get_active_role
 from core.memory_pipeline import MemoryEvent, submit_turn
+from core.logger import pipeline_logger
 
 
-def _is_auto_task(content: str) -> bool:
-    """Detect Open WebUI auto-generated task messages (tags, titles, follow-ups)."""
+def _is_auto_task(content: str, source: str = "user") -> bool:
+    """检测 Open WebUI 自动生成任务消息 (tags, titles, follow-ups)."""
     if not content:
         return True
     # Task prompts
@@ -146,14 +147,13 @@ class MemoryManager:
         doc_chunks = []
         if active_docs:
             doc_chunks = self.qdrant.search_documents(embedding, top_k=4, doc_ids=list(active_docs))
-
+        # [S0-8] 构建 RAG 提示
         final_prompt = build_prompt(
            request_messages=messages,
            overall_summary=summary,
            related_memories=all_memories,
            document_chunks=doc_chunks,
        )
-        # [S0-8] 构建 RAG 提示
         self.last_prompt = {
            "session_id": session_id,
            "debug_info": {"related": len(all_memories), "summary": bool(summary), "docs": len(doc_chunks)},
@@ -168,7 +168,8 @@ class MemoryManager:
 
         self.sessions.add_message(session_id, "user", last_user_msg)
         # Skip storing auto-task messages as memories
-        if not _is_auto_task(last_user_msg):
+        if not _is_auto_task(last_user_msg, source="user"):
+            # [S0-10] 存储用户消息为记忆，同步写入 Qdrant；
             self.qdrant.upsert_memory(session_id, "user", last_user_msg, embedding, layer=active_role)
 
         model_override = getattr(self, '_model_override', None)
@@ -176,26 +177,27 @@ class MemoryManager:
             llm = LLMFactory.get(provider='deepseek', model='deepseek-v4-flash')
         else:
             llm = LLMFactory.get(model=model_override)
+        # [S0-9] LLM 调用
         response = llm.chat(final_prompt)
 
         self.sessions.add_message(session_id, "assistant", response)
-        # [S0-9] LLM 调用
-        if not _is_auto_task(response):
+        if not _is_auto_task(response, source="assistant"):
            resp_embedding = EmbeddingService.embed(response)
+           # [S0-11] 存储助手回复为记忆，同步写入 Qdrant；
            self.qdrant.upsert_memory(session_id, "assistant", response, resp_embedding, layer=active_role)
 
-        # Stage 0: Submit Turn to async memory pipeline
-        is_auto_task = _is_auto_task(last_user_msg) and _is_auto_task(response)
+        
+        is_auto_task = _is_auto_task(last_user_msg, source="user") or _is_auto_task(response, source="assistant")
         if not is_auto_task:
-            # 普通对话 → 提交到异步记忆处理管道
+            # [S0-12] 提交异步管道任务，普通对话 → 提交到异步记忆处理管道
             event = MemoryEvent(
                user_msg=last_user_msg,
                assistant_msg=response,
                session_id=session_id,
                layer=active_role,
             )
+            # Stage 0: 把 turn 提交到异步队列，Stage 1: 异步处理管道会进行去重、SLM 验证、规则评估等操作
             submit_turn(event)
-            # [S0-10] [S0-11] 同步写入 Qdrant；[S0-12] 提交异步管道任务
             if Config.TEST_MODE:
                 from core.logger import pipeline_logger
                 pipeline_logger.debug(f"Turn {event.turn_id} submitted: user_input={last_user_msg[:50]}, assistant_response={response[:50]}")
@@ -211,12 +213,11 @@ class MemoryManager:
             except Exception:
                 pass
             pipeline_logger.info(f"Auto task completed. Follow-ups: [{follow_ups}]")
-        # [S0-10] [S0-11] 同步写入 Qdrant；[S0-12] 提交异步管道任务
 
         msg_count = self.sessions.get_message_count(session_id)
         if msg_count > 0 and msg_count % (Config.SUMMARY_INTERVAL * 2) == 0:
-           self._generate_summary(session_id)
-        # [S0-13] 条件性摘要生成
+            # [S0-13] 条件性摘要生成
+            self._generate_summary(session_id)
 
         reasoning = getattr(llm, 'last_reasoning', None)
         return {"response": response, "session_id": session_id, "reasoning": reasoning}
@@ -245,7 +246,9 @@ class MemoryManager:
         try:
             llm = LLMFactory.get(model=self._model_override)
             summary = llm.chat(prompt)
+            pipeline_logger.info(f"Summary generated: {summary}")
             embedding = EmbeddingService.embed(summary)
             self.qdrant.save_summary(summary, embedding)
         except Exception as e:
+            pipeline_logger.error(f"[ERROR] Summary generation failed: {e}")
             print(f"[WARN] Summary generation failed: {e}")

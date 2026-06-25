@@ -1,4 +1,5 @@
 import re
+from core.logger import pipeline_logger
 import json
 import httpx
 from core.config import Config
@@ -83,7 +84,7 @@ def extract_mus(turn_text: str, user_msg: str) -> list[str]:
 
 def _safe_parse_json(text: str) -> dict | None:
     text = text.strip()
-    if text.startswith(''): text = text.split('')[1].replace('json', '', 1).strip()
+    if text.startswith('```'): text = text.split('```')[1].replace('json', '', 1).strip()
     try: result = json.loads(text); return result if isinstance(result, dict) else None
     except: pass
     m = re.search(r'\{.*?\}', text, re.DOTALL)
@@ -111,13 +112,18 @@ def slm_validate(turn_text: str) -> dict:
     }
     headers = {'Content-Type': 'application/json'}
     try:
-        resp = httpx.post(f'{Config.OLLAMA_BASE_URL}/api/chat', json=payload, headers=headers, timeout=60)
+        resp = httpx.post(f'{Config.OLLAMA_BASE_URL}/api/chat', json=payload, headers=headers, timeout=Config.SLM_VALIDATION_TIMEOUT)
         resp.raise_for_status()
         text = resp.json()['message']['content'].strip()
-        print(f'[SLM DEBUG] Raw Output: {text[:500]}')
+        pipeline_logger.info(f"[SLM] Raw output (first 500 chars): {text[:500]}")
         raw = _safe_parse_json(text)
-        if raw is None: return {'keep': False}
+        if raw is None:
+            pipeline_logger.warning(f"[SLM] JSON parse failed. Raw snippet: {text[:300]}")
+            pipeline_logger.debug(f"[SLM] Prompt sent (first 3000 chars): {payload['messages'][0]['content'][:3000]}")
+            return {'keep': False}
         return DecisionMaker.classify_mu(raw)
     except Exception as e:
-        print(f'[SLM Validation Error] {e}')
+        if Config.TEST_MODE:
+            pipeline_logger.error(f'[SLM Validation Error] Exception: {type(e).__name__}, Details: {str(e)}')
+            pipeline_logger.debug(f"[SLM] Prompt sent (first 3000 chars): {payload['messages'][0]['content'][:3000]}")
         return {'keep': False}

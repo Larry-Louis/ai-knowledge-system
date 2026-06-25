@@ -116,52 +116,52 @@ def _store_mu(content: str, mu_type: str, mu_tag: str, layer_type: str,
 
 
 def _process_turn(turn_data: dict, qdrant: QdrantStore):
-   """
-   [S1-4] 异步记忆处理管道核心函数
+    """
+    [S1-4] 异步记忆处理管道核心函数
 
-   主要工作流：
-   [S1-4a] 拼接对话文本：将用户输入和 AI 回复拼接成完整对话文本
-   [S1-4-Rule] 综合得分评估：使用规则评估器（结构得分、极性得分、领域匹配）进行轻量级过滤
-   [S1-4b] SLM 验证：调用小型语言模型验证对话内容是否值得记忆
-   [S1-4c] DecisionMaker.classify_mu：根据 SLM 结果应用重要性-置信度决策矩阵
-   [S1-4e] _store_mu：将每个摘要存储为记忆单元（memory_unit），包含类型、标签、层、重要性、置信度等信息
-   """
-   # [S1-4a] 拼接对话文本
-   user_input = turn_data.get("user", "")
-   turn_text = f'用户: {user_input}\nAI助手: {turn_data.get("assistant","")}'
-   pipeline_logger.info(f"Full turn text: {turn_text}")
-   pipeline_logger.debug(f"Processing turn {turn_data.get('turn_id', 'unknown')} with system version: {Config.SYSTEM_VERSION}")
+    主要工作流：
+    [S1-4a] 拼接对话文本：将用户输入和 AI 回复拼接成完整对话文本
+    [S1-4-Rule] 综合得分评估：使用规则评估器（结构得分、极性得分、领域匹配）进行轻量级过滤
+    [S1-4b] SLM 验证：调用小型语言模型验证对话内容是否值得记忆
+    [S1-4c] DecisionMaker.classify_mu：根据 SLM 结果应用重要性-置信度决策矩阵
+    [S1-4e] _store_mu：将每个摘要存储为记忆单元（memory_unit），包含类型、标签、层、重要性、置信度等信息
+    """
+    # [S1-4a] 拼接对话文本
+    user_input = turn_data.get("user", "")
+    turn_text = f'用户: {user_input}\nAI助手: {turn_data.get("assistant","")}'
+    pipeline_logger.debug(f"Full turn text (truncated): {turn_text}...")
+    pipeline_logger.debug(f"Processing turn {turn_data.get('turn_id', 'unknown')} with system version: {Config.SYSTEM_VERSION}")
+    
+    # [S1-4-Rule] 综合得分评估：保安系统入口，在SLM评估前进行轻量级过滤。
+    score = calculate_rule_score(user_input, turn_text, is_user_turn=True)
    
-   # [S1-4-Rule] 综合得分评估：保安系统入口，在SLM评估前进行轻量级过滤。
-   score = calculate_rule_score(user_input, turn_text, is_user_turn=True)
-   
-   # 拦截策略: 如果非常确定是垃圾(<0.1)则跳过
-   if score < 0.1:
-       pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} dropped. Score: {score:.2f}")
-       return
-   pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} processed. Score: {score:.2f}")
-   pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')} full details: score={score}, user_input={user_input}")
+    # 拦截策略: 如果非常确定是垃圾(<0.1)则跳过
+    if score < 0.1:
+        pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} dropped. Score: {score:.2f}")
+        return
+    pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} processed. Score: {score:.2f}")
+    pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')} full details: score={score}, user_input={user_input[:200]}")
 
-   # [S1-4b] SLM 验证前检查，将检查结果和原始信息记录至日志。
-   result = slm_validate(turn_text)
-   if not result.get('keep', False): return
-   
-   pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} SLM validation successful. Keep: {result.get('keep')}")
-   pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')}: SLM validation result={result}")
-   pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')} full AI Response: {turn_data.get('assistant')}")
+    # [S1-4b] SLM 验证前检查，将检查结果和原始信息记录至日志。
+    result = slm_validate(turn_text)
+    if not result.get('keep', False): return
+    
+    pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} SLM validation successful. Keep: {result.get('keep')}")
+    pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')}: SLM validation result={result}")
+    pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')} full AI Response: {turn_data.get('assistant')}")
 
-   # [S1-4c] DecisionMaker.classify_mu(SLM 结果)
-   summaries = result.get('summaries') or []
-   if not summaries:
-       s = (result.get('summary') or '').strip()
-       summaries = [s] if s else []
+    # [S1-4c] DecisionMaker.classify_mu(SLM 结果)
+    summaries = result.get('summaries') or []
+    if not summaries:
+        s = (result.get('summary') or '').strip()
+        summaries = [s] if s else []
    
-   for s in summaries[:3]:
-       if s.strip():
-           # [S1-4e] _store_mu(每个摘要)
-           _store_mu(s.strip(), result.get('type', 'ENTITY'), result.get('tag', 'noise'), result.get('layer_type', 'semantic'), result.get('importance', 0.0), result.get('confidence', 0.0), result.get('store_priority', 'drop'), turn_data, qdrant)
-           pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')}: Summary stored: {s.strip()[:50]}...")
-           pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')}: Full Summary stored: {s.strip()}")
+    for s in summaries[:3]:
+        if s.strip():
+            # [S1-4e] _store_mu(每个摘要)
+            _store_mu(s.strip(), result.get('type', 'ENTITY'), result.get('tag', 'noise'), result.get('layer_type', 'semantic'), result.get('importance', 0.0), result.get('confidence', 0.0), result.get('store_priority', 'drop'), turn_data, qdrant)
+            pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')}: Summary stored: {s.strip()[:50]}...")
+            pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')}: Full Summary stored: {s.strip()}")
 
 
 _worker_thread = threading.Thread(target=_worker, daemon=True, name='memory-pipeline')
