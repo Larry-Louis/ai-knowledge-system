@@ -488,7 +488,7 @@ turn_text = f"用户: {turn_data.get('user','')}\nAI助手: {turn_data.get('assi
 4. `DecisionMaker.classify_mu(raw)` — 声明：`rag-api/core/decision_maker.py:17`
 
 这是管道的**语义门控**：
-- 使用 DeepSeek 扮演 SLM（Small Language Model）角色
+- 使用本地运行的 DeepSeek: deepseek-r1 扮演 SLM（Small Language Model）角色以节省 token
 - 调用 `SLM_PROMPT v3.0`（prompt 约 180 行）
 - 参数：`temperature=0.1`（低随机性），`max_tokens=300`
 

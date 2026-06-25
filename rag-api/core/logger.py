@@ -3,9 +3,6 @@ import os
 import datetime
 from core.config import Config
 
-# 测试模式开关，可以通过环境变量开启
-TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
-
 def get_logger(name: str):
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG) # 接收所有级别
