@@ -93,8 +93,8 @@ def _worker():
             _queue.mark_done(item['id'])
         except Exception as e:
             _queue.mark_failed(item['id'], str(e))
-            print(f"[MemoryPipeline] Detailed Error for turn {turn_data.get('turn_id', '?')}:")
-            traceback.print_exc()
+            pipeline_logger.error(f"Turn {turn_data.get('turn_id', '?')} failed: {e}")
+            pipeline_logger.exception("Full traceback:")
 
 def _store_mu(content: str, mu_type: str, mu_tag: str, layer_type: str,
                importance: float, confidence: float, store_priority: str,

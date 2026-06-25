@@ -75,13 +75,15 @@ tag 只允许从以下选择，值得记忆（keep=true）的内容：
 - 有几组大括号就分别拆分为多个 JSON 对象描述每组的信息
 每组大括号包裹的区域综合起来输出一个 JSON 对象。
 输出格式：
-{{"keep": true, "importance": 0.65, "confidence": 0.75, "tier": "LONG", "type": "ENTITY", "tag": "identity", "summaries": ["用户技术栈是Python", "用户从事AI开发"]},
-{"keep": true, "importance": 0.95, "confidence": 0.85, "tier": "MEDIUM", "type": "TASK", "tag": "task", "summaries": ["用户要开发AI知识库"]}}
+{"keep": true, "importance": 0.65, "confidence": 0.75, "tier": "LONG", "type": "ENTITY", "tag": "identity", "summaries": ["用户技术栈是Python", "用户从事AI开发"]},
+{"keep": true, "importance": 0.95, "confidence": 0.85, "tier": "MEDIUM", "type": "TASK", "tag": "task", "summaries": ["用户要开发AI知识库"]}
 
 对话内容：{turn}"""
 
 def get_memory_validation_prompt(turn_text: str) -> str:
-    return SLM_PROMPT.format(
-        version=SLM_PROMPT_VERSION, turn=turn_text[:1500]
+    return SLM_PROMPT.replace(
+        '{version}', SLM_PROMPT_VERSION
+    ).replace(
+        '{turn}', turn_text[:1500]
     )
 
