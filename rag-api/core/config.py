@@ -4,7 +4,7 @@ class Config:
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
 
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "deepseek-r1:latest")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 
     DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
     DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
@@ -49,4 +49,4 @@ class Config:
     SUMMARY_USER_PROMPT_TEMPLATE = os.getenv("SUMMARY_USER_PROMPT_TEMPLATE", "基于以下对话内容，生成世界观摘要（包含核心设定、重要角色、关键事件、规则）：\n\n{history_text}")
     
     # 超时配置
-    SLM_VALIDATION_TIMEOUT = int(os.getenv("SLM_VALIDATION_TIMEOUT", "120"))
+    SLM_VALIDATION_TIMEOUT = int(os.getenv("SLM_VALIDATION_TIMEOUT", "240"))

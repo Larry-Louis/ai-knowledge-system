@@ -416,13 +416,14 @@ _worker() 守护线程
 
 ### [S1-3] 出队与标记
 
-| 操作 | 声明位置 | 调用位置 | 说明 |
-|------|---------|---------|------|
-| `dequeue(batch_size=1)` | `persistent_queue.py:73` | `memory_pipeline.py:81` | 按 `created_at ASC` 取最早一条 `pending` 记录 |
-| `mark_done(item_id)` | `persistent_queue.py:98` | `memory_pipeline.py:93` | 处理成功后标记为 `done` |
-| `mark_failed(item_id, error)` | `persistent_queue.py:113` | `memory_pipeline.py:95` | 处理失败后重试，超 3 次变 `dead` |
+| 操作                            | 声明位置                      | 调用位置                    | 说明                                    |
+| ----------------------------- | ------------------------- | ----------------------- | ------------------------------------- |
+| `dequeue(batch_size=1)`       | `persistent_queue.py:73`  | `memory_pipeline.py:81` | 按 `created_at ASC` 取最早一条 `pending` 记录 |
+| `mark_done(item_id)`          | `persistent_queue.py:98`  | `memory_pipeline.py:93` | 处理成功后标记为 `done`                       |
+| `mark_failed(item_id, error)` | `persistent_queue.py:113` | `memory_pipeline.py:95` | 处理失败后重试，超 3 次变 `dead`                 |
 
 **`enqueue(data, max_retries)`** （由 S0-12 `submit_turn()` 调用）：
+
 | 维度 | 位置 |
 |------|------|
 | **声明位置** | `rag-api/services/persistent_queue.py:53` |

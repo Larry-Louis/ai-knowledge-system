@@ -139,14 +139,17 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
     if score < 0.1:
         pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} dropped. Score: {score:.2f}")
         return
-    pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} processed. Score: {score:.2f}")
+    pipeline_logger.info(f"Final score: {score:.2f}. Turn {turn_data.get('turn_id', 'unknown')} processed.")
     pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')} full details: score={score}, user_input={user_input[:200]}")
 
     # [S1-4b] SLM 验证前检查，将检查结果和原始信息记录至日志。
     result = slm_validate(turn_text)
-    if not result.get('keep', False): return
+    if not result.get('keep', False): 
+        pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} dropped by SLM validation.")
+        return
     
     pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} SLM validation successful. Keep: {result.get('keep')}")
+    pipeline_logger.info(f"Final result: {result.get('keep')}")
     pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')}: SLM validation result={result}")
     pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')} full AI Response: {turn_data.get('assistant')}")
 
