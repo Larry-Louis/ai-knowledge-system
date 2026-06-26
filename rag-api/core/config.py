@@ -4,7 +4,7 @@ class Config:
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
 
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "deepseek-r1:latest")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 
     DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
     DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
@@ -39,7 +39,7 @@ class Config:
 
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", "8000"))
-    
+
     # 测试模式开关，可以通过环境变量开启
     TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
     SYSTEM_VERSION = "2.0.4-RC"
@@ -47,3 +47,6 @@ class Config:
     SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "你是一个长期世界构建AI（小说/游戏设计助手）。你必须保证设定一致性，维护世界观、角色和剧情的连贯性。每次回答都要基于已有的世界观信息，并自然地延续设定。")
     SUMMARY_SYSTEM_PROMPT = os.getenv("SUMMARY_SYSTEM_PROMPT", "你是世界观摘要生成器。基于对话历史提取关键设定、角色、事件，生成简洁的世界观摘要。")
     SUMMARY_USER_PROMPT_TEMPLATE = os.getenv("SUMMARY_USER_PROMPT_TEMPLATE", "基于以下对话内容，生成世界观摘要（包含核心设定、重要角色、关键事件、规则）：\n\n{history_text}")
+    
+    # 超时配置
+    SLM_VALIDATION_TIMEOUT = int(os.getenv("SLM_VALIDATION_TIMEOUT", "240"))

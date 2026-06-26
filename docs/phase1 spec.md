@@ -221,12 +221,12 @@ POST /v1/chat/completions
 
 ### [S0-9] LLM 调用
 
-| 维度 | 位置 |
-|------|------|
-| **声明位置** | `rag-api/core/llm.py:73` — `LLMFactory.get()` 工厂方法定义 |
-| **调用位置** | `rag-api/core/memory.py:176-178` — 在 `process_request()` 内，根据模型选择策略调用工厂方法 |
+| 维度           | 位置                                                                                                                                  |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **声明位置**     | `rag-api/core/llm.py:73` — `LLMFactory.get()` 工厂方法定义                                                                                |
+| **调用位置**     | `rag-api/core/memory.py:176-178` — 在 `process_request()` 内，根据模型选择策略调用工厂方法                                                           |
 | **LLM 调用声明** | `rag-api/core/llm.py:15` (Ollama), `rag-api/core/llm.py:35` (DeepSeek), `rag-api/core/llm.py:58` (OpenAI) — 各 `LLMClient.chat()` 实现 |
-| **LLM 调用位置** | `rag-api/core/memory.py:179` — `llm.chat(final_prompt)` |
+| **LLM 调用位置** | `rag-api/core/memory.py:179` — `llm.chat(final_prompt)`                                                                             |
 
 
 - 根据 `Config.LLM_PROVIDER` 选择客户端：Ollama / DeepSeek / OpenAI
@@ -237,11 +237,11 @@ POST /v1/chat/completions
 
 ### [S0-10] [S0-11] 同步写入 Qdrant
 
-| 维度 | 位置 |
-|------|------|
-| **声明位置** | `rag-api/services/qdrant_store.py:45` — `QdrantStore.upsert_memory()` 方法定义 |
-| **S0-10 调用位置** | `rag-api/core/memory.py:172` — 写入用户最后一条消息 |
-| **S0-11 调用位置** | `rag-api/core/memory.py:185` — 写入 AI 完整响应 |
+| 维度             | 位置                                                                         |
+| -------------- | -------------------------------------------------------------------------- |
+| **声明位置**       | `rag-api/services/qdrant_store.py:45` — `QdrantStore.upsert_memory()` 方法定义 |
+| **S0-10 调用位置** | `rag-api/core/memory.py:171` — 写入用户最后一条消息                                  |
+| **S0-11 调用位置** | `rag-api/core/memory.py:185` — 写入 AI 完整响应                                  |
 
 > **关键理解：** 这两步写入是 **即时同步** 的，且 **不做任何质量筛选**。它们是 `type=memory` 的原始对话记录，和 S1 的 `type=memory_unit`（经过 SLM 评估+去重）是两套东西。
 
@@ -286,10 +286,10 @@ POST /v1/chat/completions
 
 ### [S0-13] 条件性摘要生成
 
-| 维度 | 位置 |
-|------|------|
-| **声明位置** | `rag-api/core/memory.py:208` — `MemoryManager._generate_summary()` 方法定义 |
-| **调用位置** | `rag-api/core/memory.py:202` — 在 `process_request()` 末尾，消息计数满足整除条件时调用 |
+| 维度       | 位置                                                                      |
+| -------- | ----------------------------------------------------------------------- |
+| **声明位置** | `rag-api/core/memory.py:224` — `MemoryManager._generate_summary()` 方法定义 |
+| **调用位置** | `rag-api/core/memory.py:219` — 在 `process_request()` 末尾，消息计数满足整除条件时调用   |
 
 **函数：** `_generate_summary()`
 
@@ -416,13 +416,14 @@ _worker() 守护线程
 
 ### [S1-3] 出队与标记
 
-| 操作 | 声明位置 | 调用位置 | 说明 |
-|------|---------|---------|------|
-| `dequeue(batch_size=1)` | `persistent_queue.py:73` | `memory_pipeline.py:81` | 按 `created_at ASC` 取最早一条 `pending` 记录 |
-| `mark_done(item_id)` | `persistent_queue.py:98` | `memory_pipeline.py:93` | 处理成功后标记为 `done` |
-| `mark_failed(item_id, error)` | `persistent_queue.py:113` | `memory_pipeline.py:95` | 处理失败后重试，超 3 次变 `dead` |
+| 操作                            | 声明位置                      | 调用位置                    | 说明                                    |
+| ----------------------------- | ------------------------- | ----------------------- | ------------------------------------- |
+| `dequeue(batch_size=1)`       | `persistent_queue.py:73`  | `memory_pipeline.py:81` | 按 `created_at ASC` 取最早一条 `pending` 记录 |
+| `mark_done(item_id)`          | `persistent_queue.py:98`  | `memory_pipeline.py:93` | 处理成功后标记为 `done`                       |
+| `mark_failed(item_id, error)` | `persistent_queue.py:113` | `memory_pipeline.py:95` | 处理失败后重试，超 3 次变 `dead`                 |
 
 **`enqueue(data, max_retries)`** （由 S0-12 `submit_turn()` 调用）：
+
 | 维度 | 位置 |
 |------|------|
 | **声明位置** | `rag-api/services/persistent_queue.py:53` |
