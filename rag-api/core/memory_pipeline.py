@@ -1,4 +1,4 @@
-"""Stage 1: Persistent Queue + Retry + Worker.
+﻿"""Stage 1: Persistent Queue + Retry + Worker.
 
 Key changes from Stage 0:
 - SQLite-backed queue (survives restarts)
@@ -18,7 +18,7 @@ from core.decision_maker import DecisionMaker
 from core.text_utils import normalize, detect_polarity, is_duplicate, extract_mus, slm_validate
 from core.rule_evaluator import calculate_rule_score
 from core.logger import pipeline_logger
-from core.config import Config
+from config import Config
 from services.embedding import EmbeddingService
 from services.qdrant_store import QdrantStore
 from services.persistent_queue import PersistentQueue
@@ -105,8 +105,6 @@ def _store_mu(content: str, mu_type: str, mu_tag: str, layer_type: str,
     is_dup, embedding = is_duplicate(content, qdrant)
     if is_dup: return
 
-    # Conflict resolution...
-    from core.config import Config
     if embedding is None: embedding = [0.0] * Config.EMBEDDING_DIM
     from qdrant_client.models import PointStruct
     qdrant.client.upsert(
@@ -144,13 +142,14 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
 
     # [S1-4b] SLM 验证前检查，将检查结果和原始信息记录至日志。
     result = slm_validate(turn_text)
+    pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')}: SLM validation result={result}")
+    pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} SLM validation successful. Keep: {result.get('keep')}")
+    pipeline_logger.info(f"Final result: {result.get('keep')}")
+
     if not result.get('keep', False): 
         pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} dropped by SLM validation.")
         return
     
-    pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} SLM validation successful. Keep: {result.get('keep')}")
-    pipeline_logger.info(f"Final result: {result.get('keep')}")
-    pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')}: SLM validation result={result}")
     pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')} full AI Response: {turn_data.get('assistant')}")
 
     # [S1-4c] DecisionMaker.classify_mu(SLM 结果)

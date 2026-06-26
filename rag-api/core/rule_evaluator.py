@@ -1,6 +1,8 @@
 import re
-from core import rule_config
+import rule_config
 from core.logger import pipeline_logger
+from services.embedding import EmbeddingService
+from core.math_utils import cosine_similarity
 
 def probe_structure_score(text: str, is_user_turn: bool = True) -> float:
     score = rule_config.ORIGINAL_SCORE
@@ -43,18 +45,44 @@ def detect_polarity_score(text: str) -> float:
     pipeline_logger.info("detect_polarity_score: neutral=0.0")
     return 0.0
 
+ANCHOR_SENTENCES = [
+    "我在做一个项目",
+    "我们团队正在开发",
+    "我的工作是",
+    "我打算做这件事",
+    "我计划下一步",
+    "我喜欢这个东西",
+    "我不喜欢这个",
+    "我擅长这方面",
+    "我不太会这个",
+    "我遇到了一个问题",
+    "我最近在学习",
+]
+_anchor_vectors: list[list[float]] | None = None
+
+def _get_anchor_vectors() -> list[list[float]]:
+    global _anchor_vectors
+    if _anchor_vectors is None:
+        _anchor_vectors = [EmbeddingService.embed(s) for s in ANCHOR_SENTENCES]
+    return _anchor_vectors
+
+def semantic_relevance_score(user_text: str) -> float:
+    vec = EmbeddingService.embed(user_text)
+    return max(cosine_similarity(vec, a) for a in _get_anchor_vectors())
+
 def match_domain_pattern(text: str) -> float:
     action_hit = any(act in text for act in rule_config.DOMAIN_ACTIONS)
     object_hit = any(obj in text for obj in rule_config.DOMAIN_OBJECTS)
     
-    if action_hit and object_hit:
-        pipeline_logger.info("match_domain_pattern: action_and_object_hit=0.6")
-        return 0.6  # 动宾明确
-    if action_hit or object_hit:
-        pipeline_logger.info("match_domain_pattern: partial_hit=0.2")
-        return 0.2  # 单侧命中
-    pipeline_logger.info("match_domain_pattern: no_hit=0.0")
-    return 0.0
+    rule_score = 0.0
+    if action_hit and object_hit: rule_score = 0.6
+    elif action_hit or object_hit: rule_score = 0.2
+    
+    sem_score = semantic_relevance_score(text)
+    
+    final_score = max(rule_score, sem_score * 0.8)
+    pipeline_logger.info(f"match_domain_pattern: rule_score={rule_score}, sem_score={sem_score}, final={final_score}")
+    return final_score
 
 def calculate_rule_score(text: str, turn_text: str = None, is_user_turn: bool = True) -> float:
     # 综合得分

@@ -2,7 +2,7 @@ import re
 from core.logger import pipeline_logger
 import json
 import httpx
-from core.config import Config
+from config import Config
 from core.prompt_factory import get_memory_validation_prompt
 from core.decision_maker import DecisionMaker
 from services.embedding import EmbeddingService

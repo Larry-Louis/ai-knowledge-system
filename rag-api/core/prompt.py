@@ -1,4 +1,4 @@
-from core.config import Config
+from config import Config
 
 DEFAULT_SYSTEM_PROMPT = Config.SYSTEM_PROMPT
 

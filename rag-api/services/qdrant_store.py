@@ -10,7 +10,7 @@ from qdrant_client.models import (
     MatchValue,
     FilterSelector,
 )
-from core.config import Config
+from config import Config
 
 
 GLOBAL_SESSION = "__global__"

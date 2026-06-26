@@ -1,5 +1,5 @@
 from collections import defaultdict, deque
-from core.config import Config
+from config import Config
 
 
 class SessionStore:

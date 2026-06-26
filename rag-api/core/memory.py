@@ -2,7 +2,7 @@ import time
 import uuid
 import hashlib
 
-from core.config import Config
+from config import Config
 from core.state import get_active_role
 from core.memory_pipeline import MemoryEvent, submit_turn
 from core.logger import pipeline_logger

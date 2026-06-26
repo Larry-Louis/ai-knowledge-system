@@ -67,7 +67,7 @@ def set_active_role(role: str):
     验证角色是否在允许的层列表中（MEMORY_LAYERS 或 CORE_LAYER）
     """
     global _active_role
-    from core.config import Config
+    from config import Config
     allowed = set(Config.MEMORY_LAYERS.keys()) | {Config.CORE_LAYER}
     if role not in allowed:
         raise ValueError(f"未知记忆层: {role}，可用层: {', '.join(sorted(allowed))}")

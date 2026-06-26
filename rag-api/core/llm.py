@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import httpx
-from core.config import Config
+from config import Config
 
 class LLMClient(ABC):
     @abstractmethod

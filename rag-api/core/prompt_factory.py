@@ -1,5 +1,5 @@
 """Prompt Factory for Memory Pipeline."""
-from core.config import Config
+from config import Config
 
 SLM_PROMPT_VERSION = "v3.0"
 
@@ -17,16 +17,17 @@ AI回复仅作为辅助上下文。
 必须优先判断：用户是否透露了新的身份、偏好、项目、任务、经验。
 如果存在上述信息，即使整个对话属于闲聊或问答，仍然允许 keep=true。
 只有当对话揭示了用户本身的信息时，才允许进入记忆系统。
+
 # 任务目标
 默认拒绝（Default Reject），
 除非明确发现：
 - 用户身份
-- 用户偏好
+- 用户偏好（包括兴趣爱好、习惯、喜欢/不喜欢什么）
 - 用户项目
 - 用户任务
 - 用户经验总结
-
 否则 keep=false。
+
 你需要为每条对话生成：
 1. 是否值得进入记忆系统（keep）
 2. 重要性评分（importance）
@@ -86,4 +87,3 @@ def get_memory_validation_prompt(turn_text: str) -> str:
     ).replace(
         '{turn}', turn_text[:1500]
     )
-

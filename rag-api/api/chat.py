@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from core.config import Config
+from config import Config
 from core.memory import MemoryManager
 from core.state import set_active_role, set_core_write_mode, get_core_write_mode
 from models.schema import ChatCompletionRequest, ChatCompletionResponse
