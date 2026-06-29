@@ -14,7 +14,7 @@ def get_logger(name: str):
         os.makedirs(log_dir, exist_ok=True)
 
         formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
         )
 
         today = datetime.date.today().isoformat()

@@ -14,4 +14,4 @@ venv/
 .vscode/
 *.log*
 .deepseek/
- 
+*.json

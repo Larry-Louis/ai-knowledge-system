@@ -49,3 +49,106 @@ DOMAIN_OBJECTS = {
     "团队", "方向", "目标", "任务",
 }
 # 同时匹配到两者将显著提高置信度评分。
+
+# 4. 语义锚点句子（用于语义相关性评分）
+# 按文档 Semantic Relevance.md 分为七组 Memory Prototype
+# 每组代表一种值得长期记忆的用户信息类型
+ANCHOR_GROUPS = {
+    "Identity": [
+        "我的工作是",
+        "我负责",
+        "我的职业是",
+        "我是一名",
+    ],
+    "Project": [
+        "我在做一个项目",
+        "我们团队正在开发",
+        "最近一直在做",
+        "我正在开发",
+        "目前负责一个",
+    ],
+    "Preference": [
+        "我喜欢这个东西",
+        "我不喜欢这个",
+        "我更喜欢",
+        "我习惯",
+        "我讨厌",
+    ],
+    "Skill": [
+        "我擅长这方面",
+        "我不太会这个",
+        "我最近在学习",
+        "我会",
+        "我熟悉",
+    ],
+    "Goal": [
+        "我打算做这件事",
+        "我计划下一步",
+        "我准备",
+        "以后准备",
+        "下一步打算",
+    ],
+    "Experience": [
+        "我遇到了一个问题",
+        "我成功解决了",
+        "最近完成了一个",
+        "以前做过",
+    ],
+    "LongTermState": [
+        "最近一直",
+        "长期",
+        "持续在",
+        "目前一直",
+    ],
+}
+
+# 展平为列表，保持向后兼容（单空间评分时使用）
+ANCHOR_SENTENCES = [s for group in ANCHOR_GROUPS.values() for s in group]
+
+# 5. 非记忆锚点句子（Non-Memory Prototype）
+# 按 Semantic Relevance.md 分为五组
+NON_MEMORY_ANCHOR_GROUPS = {
+    "Chat": [
+        "你好",
+        "谢谢",
+        "好的",
+        "收到",
+        "哈哈",
+        "嗯",
+    ],
+    "TemporaryEvent": [
+        "今天下雨",
+        "刚吃饭",
+        "准备睡觉",
+        "去买菜",
+        "刚回来",
+    ],
+    "AssistantInstruction": [
+        "帮我翻译",
+        "继续",
+        "重新回答",
+        "详细一点",
+        "优化一下",
+    ],
+    "ObjectiveFact": [
+        "天气不错",
+        "今天星期五",
+        "微软发布了新版本",
+    ],
+    "PureQuestion": [
+        "Docker怎么安装",
+        "为什么报错",
+        "Python是什么",
+    ],
+}
+
+# 展平为列表，保持向后兼容
+NON_MEMORY_ANCHOR_SENTENCES = [s for group in NON_MEMORY_ANCHOR_GROUPS.values() for s in group]
+
+# 6. 语义评分参数（Semantic Relevance Scoring）
+# Strong Match: 与某条 Memory Prototype 的相似度超过此阈值时，直接用 max 值（而非 Top-K 平均）
+STRONG_MATCH_THRESHOLD = 0.85
+# Top-K: 取相似度前 K 条的平均值作为空间得分
+TOP_K = 3
+# Non-Memory 惩罚系数: final = memory_score - β × non_memory_score
+NON_MEMORY_PENALTY = 0.5
