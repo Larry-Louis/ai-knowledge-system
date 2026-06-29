@@ -5,6 +5,14 @@ Date: 2026-06-06
 > 本文档描述当前**实际实现**的完整处理链路，基于代码而非设计文档。
 > 注意：此文件使用 UTF-8 编码。
 
+## 维护说明（2026-06-29）
+
+- 由于近期重构（`prompt_builder` / `llm_gateway` 门面引入），文中部分“精确行号”可能与当前代码不一致。
+- 本文以“模块路径 + 函数名 + 阶段职责”为准；精确行号仅作历史参考。
+- 关键入口已更新为：
+  - Prompt 构建入口：`rag-api/application/prompt_builder.py`（内部调用 `prompts/prompt.py`）
+  - LLM 路由入口：`rag-api/application/llm_gateway.py`（内部调用 `infrastructure/llm/llm_client.py`）
+
 ---
 
 # 系统总架构：双阶段记忆管道

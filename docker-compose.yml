@@ -61,7 +61,7 @@ services:
 
   worker:
     build:
-      context: ./worker
+      context: ./legacy/worker
     container_name: ingest-worker
     volumes:
       - ./docs:/docs
