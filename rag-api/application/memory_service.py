@@ -6,6 +6,7 @@ from infrastructure.config.config import Config
 from infrastructure.runtime.state import get_active_role
 from application.memory_pipeline_service import MemoryEvent, submit_turn
 from infrastructure.logging.logger import pipeline_logger
+from application.llm_gateway import get_llm
 
 
 def _is_auto_task(content: str, source: str = "user") -> bool:
@@ -26,8 +27,7 @@ def _is_auto_task(content: str, source: str = "user") -> bool:
         except json.JSONDecodeError:
             pass
     return False
-from infrastructure.llm.llm_client import LLMFactory
-from prompts.prompt import build_prompt
+from application.prompt_builder import build_prompt
 from infrastructure.embedding.embedding import EmbeddingService
 from infrastructure.vector.qdrant_store import QdrantStore
 from infrastructure.session.session_store import SessionStore
@@ -173,10 +173,7 @@ class MemoryManager:
             self.qdrant.upsert_memory(session_id, "user", last_user_msg, embedding, layer=active_role)
 
         model_override = getattr(self, '_model_override', None)
-        if not model_override and active_role in ['story', 'docreader']:
-            llm = LLMFactory.get(provider='deepseek', model='deepseek-v4-flash')
-        else:
-            llm = LLMFactory.get(model=model_override)
+        llm = get_llm(model=model_override, role=active_role)
         # [S0-9] LLM 调用
         response = llm.chat(final_prompt)
 
@@ -244,7 +241,7 @@ class MemoryManager:
         ]
 
         try:
-            llm = LLMFactory.get(model=self._model_override)
+            llm = get_llm(model=self._model_override)
             summary = llm.chat(prompt)
             pipeline_logger.info(f"Summary generated: {summary}")
             embedding = EmbeddingService.embed(summary)

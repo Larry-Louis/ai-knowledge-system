@@ -1,6 +1,7 @@
-"""Persistent FIFO queue backed by SQLite for memory pipeline events.
+"""
+持久化 FIFO 队列，基于 SQLite，用于记忆管道事件。
 
-Designed for single-worker, survives process restart.
+为单工作线程设计，支持进程重启后继续运行。
 """
 import json
 import sqlite3
@@ -21,7 +22,7 @@ class PersistentQueue:
         self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
-        """Get thread-local database connection."""
+        """获取线程本地的数据库连接。"""
         if not hasattr(self._local, "conn") or self._local.conn is None:
             self._local.conn = sqlite3.connect(self._db_path)
             self._local.conn.row_factory = sqlite3.Row
