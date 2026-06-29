@@ -8,11 +8,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from models.schema import ChatRequest, ChatResponse
-from services.parser import parse_document, extract_pdf_text, validate_text
-from services.indexer import DocumentIndexer
-from services.embedding import embed
-from services.llm import chat as llm_chat
+from models.api_schema import ChatRequest, ChatResponse
+from infrastructure.parser.parser import parse_document, extract_pdf_text, validate_text
+from infrastructure.index.indexer import DocumentIndexer
+from infrastructure.embedding.embedding import embed
+from infrastructure.llm.llm_client import chat as llm_chat
 import httpx
 
 RAG_API_BASE = os.getenv("RAG_API_URL", "http://rag-api:8000")

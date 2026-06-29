@@ -29,7 +29,7 @@
 1.  **通道 A (工作记忆)**: 即时、同步、上下文相关。
 2.  **通道 B (长期记忆)**: 异步处理，由 `rag-api/core/memory_pipeline.py` 控制。
     *   流程: `SQLite 任务队列` → `SLM 验证器` (决策) → `提取单元` → `标准化` → `去重` → `Qdrant 写入`。
-    *   **注意事项**: 记忆流水线是异步的，使用 SQLite 状态机处理故障和奔溃恢复。调试记忆丢失问题时，请务必检查 `rag-api/core/state.py` 和 `services/persistent_queue.py`。
+    *   **注意事项**: 记忆流水线是异步的，使用 SQLite 状态机处理故障和奔溃恢复。调试记忆丢失问题时，请务必检查 `rag-api/core/state.py` 和 `infrastructure/queue/persistent_queue.py`。
 
 ## 开发约定
 
