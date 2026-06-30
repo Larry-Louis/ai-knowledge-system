@@ -6,11 +6,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from api.chat import router as chat_router
-from core.config import Config
-from core.state import set_active_doc_ids, get_active_doc_ids, get_active_role, set_active_role, get_core_write_mode
+from infrastructure.config.config import Config
+from infrastructure.runtime.state import set_active_doc_ids, get_active_doc_ids, get_active_role, set_active_role, get_core_write_mode
 
 
-from services.embedding import EmbeddingService
+from infrastructure.embedding.embedding import EmbeddingService
 
 
 app = FastAPI(title="RAG API - World Memory System")
@@ -68,8 +68,8 @@ def set_role(req: RoleRequest):
 def cleanup_memories():
     """Delete auto-task memories from Qdrant."""
     from qdrant_client.models import Filter, FieldCondition, MatchValue
-    from services.qdrant_store import QdrantStore
-    from core.memory import _is_auto_task
+    from infrastructure.vector.qdrant_store import QdrantStore
+    from application.memory_service import _is_auto_task
     qs = QdrantStore()
     pts = qs.client.scroll(collection_name='memories', limit=500, with_payload=True)[0]
     to_delete = [p.id for p in pts if _is_auto_task(p.payload.get("content", ""))]
@@ -129,3 +129,7 @@ def list_models():
             }
         ],
     }
+from application.memory_pipeline_service import start_pipeline
+@app.on_event("startup")
+def startup_event():
+    start_pipeline()

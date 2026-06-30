@@ -7,10 +7,10 @@ from pydantic import BaseModel
 
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from core.config import Config
-from core.memory import MemoryManager
-from core.state import set_active_role, set_core_write_mode, get_core_write_mode
-from models.schema import ChatCompletionRequest, ChatCompletionResponse
+from infrastructure.config.config import Config
+from application.memory_service import MemoryManager
+from infrastructure.runtime.state import set_active_role, set_core_write_mode, get_core_write_mode
+from models.api_schema import ChatCompletionRequest, ChatCompletionResponse
 
 router = APIRouter()
 memory_manager = MemoryManager()
@@ -70,7 +70,18 @@ def _build_chat_response(result: dict, request: ChatCompletionRequest) -> dict:
 
 
 @router.post("/v1/chat/completions")
+# [S0-1] API 入口解析
 def chat_completions(request: ChatCompletionRequest):
+    """
+    [S0-1] API 入口解析:
+    接收用户聊天请求，解析模型角色与会话配置，通过 MemoryManager 启动核心记忆处理工作流。
+
+    主要工作流：
+    1. 解析 model 字符串，提取模型名称和角色层（如 "deepseek-v4-flash:story"）
+    2. 根据角色设置 active_role 和 core_write_mode
+    3. 调用 MemoryManager.process_request 执行完整的记忆处理流程
+    4. 构建响应数据，支持流式输出
+    """
     try:
         model_str = request.model if request.model != "default" else ""
         
