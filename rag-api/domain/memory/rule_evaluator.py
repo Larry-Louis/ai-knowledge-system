@@ -1,8 +1,8 @@
-import re
 from domain.memory import rule_config
 from infrastructure.logging.logger import pipeline_logger
 from infrastructure.embedding.embedding import EmbeddingService
 from domain.memory.math_utils import cosine_similarity
+from infrastructure.nlp import evaluate_information_density
 
 
 def probe_structure_score(text: str, is_user_turn: bool = True) -> float:
@@ -33,22 +33,24 @@ def probe_structure_score(text: str, is_user_turn: bool = True) -> float:
     return min(score, 1.0)
 
 
-def detect_polarity_score(text: str) -> float:
+def detect_information_density(text: str) -> float:
     if any(w in text for w in rule_config.DISSOLVE_WORDS):
-        pipeline_logger.info("detect_polarity_score: dissolve_words_found=-0.5")
+        pipeline_logger.info("detect_information_density: dissolve_words_found=-0.5")
         return -0.5
 
-    pos = sum(1 for w in rule_config.POSITIVE_WORDS if w in text)
-    neg = sum(1 for w in rule_config.NEGATIVE_WORDS if w in text)
-
-    if pos > neg:
-        pipeline_logger.info("detect_polarity_score: positive=0.2")
-        return 0.2
-    if neg > pos:
-        pipeline_logger.info("detect_polarity_score: negative=-0.2")
-        return -0.2
-    pipeline_logger.info("detect_polarity_score: neutral=0.0")
-    return 0.0
+    result = evaluate_information_density(text)
+    score = result.score
+    evidence = result.evidence
+    coverage = result.meta.get("entity_coverage")
+    pipeline_logger.info(
+        "detect_information_density: score=%.4f named_objects=%s numbers=%s relations=%s coverage=%s",
+        score,
+        evidence.get("named_objects", 0),
+        evidence.get("numbers", 0),
+        evidence.get("relations", 0),
+        coverage,
+    )
+    return max(0.0, min(1.0, score))
 
 
 # ============================================================
@@ -238,13 +240,13 @@ def calculate_rule_score(text: str, turn_text: str = "", is_user_turn: bool = Tr
         turn_text = text
 
     pss = probe_structure_score(text, is_user_turn)
-    dps = detect_polarity_score(turn_text)
+    dps = detect_information_density(turn_text)
     mdp, mdp_sem_group = match_domain_pattern(text)
 
     score = pss + dps + mdp
     pipeline_logger.info(
         f"calculate_rule_score: sem_direction={mdp_sem_group}, "
-        f"probe_structure={pss:.4f}, detect_polarity={dps:.4f}, "
+        f"probe_structure={pss:.4f}, detect_information_density={dps:.4f}, "
         f"match_domain={mdp:.4f}, total={score:.4f}"
     )
     return max(0.0, min(1.0, score)), mdp_sem_group
