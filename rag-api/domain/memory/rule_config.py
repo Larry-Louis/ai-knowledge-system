@@ -19,6 +19,45 @@ LENGTH_MAX = 200
 # LENGTH_SCORE: 如果用户输入长度不在指定范围内，则减少的分值。
 LENGTH_SCORE = 0.4
 
+# 1.5 第三维：Personal Commitment（个人关联程度）
+# 目标：衡量“用户与主题的持续关系强度”，而非情绪正负。
+COMMITMENT_IDENTITY_CUES = {
+    "我是", "我负责", "我的工作是", "我在做", "我目前负责", "我是一名", "我担任"
+}
+COMMITMENT_PREFERENCE_CUES = {
+    "我喜欢", "我讨厌", "我更倾向于", "我偏好", "我不喜欢", "我习惯"
+}
+COMMITMENT_PLAN_CUES = {
+    "准备", "计划", "以后", "下一步", "打算", "将会", "目标是", "希望"
+}
+COMMITMENT_LONG_TERM_CUES = {
+    "一直", "长期", "最近都", "目前一直", "持续", "长期以来", "一段时间"
+}
+COMMITMENT_OPINION_CUES = {
+    "我觉得", "我认为", "我坚持", "我相信", "在我看来", "我主张"
+}
+
+# 缺少第一人称时，第三维一般不应过高。
+COMMITMENT_FIRST_PERSON_CUES = {"我", "我们", "我的", "咱们"}
+
+# 客观事实播报抑制项：无个人关联时降低第三维。
+COMMITMENT_OBJECTIVE_FACT_CUES = {
+    "发布", "公告", "新闻", "通报", "天气", "股价", "比赛结果", "今天"
+}
+
+# 各信号权重（可调）
+COMMITMENT_IDENTITY_SCORE = 0.28
+COMMITMENT_PREFERENCE_SCORE = 0.18
+COMMITMENT_PLAN_SCORE = 0.22
+COMMITMENT_LONG_TERM_SCORE = 0.22
+COMMITMENT_OPINION_SCORE = 0.15
+
+# 协同加分：有计划且有长期表达。
+COMMITMENT_PLAN_LONG_TERM_BONUS = 0.10
+
+# 非个人客观陈述惩罚。
+COMMITMENT_NON_PERSONAL_FACT_PENALTY = 0.15
+
 # 2. 极性过滤设置 (情感倾向)
 POSITIVE_WORDS = {"好", "支持", "推荐", "可以", "需要", "搞定"}
 NEGATIVE_WORDS = {"拒绝", "反对", "不行", "出错", "bug", "失败"}

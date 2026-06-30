@@ -6,31 +6,51 @@ from infrastructure.nlp import evaluate_information_density
 
 
 def probe_structure_score(text: str, is_user_turn: bool = True) -> float:
-    score = rule_config.ORIGINAL_SCORE
+    """第三维：Personal Commitment 评分（函数名保留用于兼容现有调用链）。"""
+    source = (text or "").strip()
+    if not is_user_turn or not source:
+        pipeline_logger.info("probe_structure_score: skip_non_user_or_empty=0.0")
+        return 0.0
 
-    if any(k in text for k in rule_config.INSTRUCTION_KEYWORDS):
-        score += rule_config.INSTRUCTION_KEYWORDS_SCORE
-    pipeline_logger.info(
-        f"probe_structure_score: instruction_keywords_score="
-        f"{rule_config.INSTRUCTION_KEYWORDS_SCORE if any(k in text for k in rule_config.INSTRUCTION_KEYWORDS) else 0.0}"
+    first_person_hit = any(cue in source for cue in rule_config.COMMITMENT_FIRST_PERSON_CUES)
+    identity_hit = any(cue in source for cue in rule_config.COMMITMENT_IDENTITY_CUES)
+    preference_hit = any(cue in source for cue in rule_config.COMMITMENT_PREFERENCE_CUES)
+    plan_hit = any(cue in source for cue in rule_config.COMMITMENT_PLAN_CUES)
+    long_term_hit = any(cue in source for cue in rule_config.COMMITMENT_LONG_TERM_CUES)
+    opinion_hit = any(cue in source for cue in rule_config.COMMITMENT_OPINION_CUES)
+
+    identity_score = rule_config.COMMITMENT_IDENTITY_SCORE if identity_hit else 0.0
+    preference_score = rule_config.COMMITMENT_PREFERENCE_SCORE if preference_hit else 0.0
+    plan_score = rule_config.COMMITMENT_PLAN_SCORE if plan_hit else 0.0
+    long_term_score = rule_config.COMMITMENT_LONG_TERM_SCORE if long_term_hit else 0.0
+    opinion_score = rule_config.COMMITMENT_OPINION_SCORE if opinion_hit else 0.0
+    synergy_score = (
+        rule_config.COMMITMENT_PLAN_LONG_TERM_BONUS if (plan_hit and long_term_hit) else 0.0
     )
 
-    if '```' in text:
-        score += rule_config.CODE_BLOCK_SCORE
+    score = identity_score + preference_score + plan_score + long_term_score + opinion_score + synergy_score
+
+    objective_fact_hit = any(cue in source for cue in rule_config.COMMITMENT_OBJECTIVE_FACT_CUES)
+    non_personal_penalty = 0.0
+    if objective_fact_hit and not first_person_hit:
+        non_personal_penalty = rule_config.COMMITMENT_NON_PERSONAL_FACT_PENALTY
+        score -= non_personal_penalty
+
+    score = max(0.0, min(1.0, score))
     pipeline_logger.info(
-        f"probe_structure_score: code_block_score="
-        f"{rule_config.CODE_BLOCK_SCORE if '```' in text else 0.0}"
+        "probe_structure_score(commitment): first_person=%s, identity=%.2f, preference=%.2f, "
+        "plan=%.2f, long_term=%.2f, opinion=%.2f, synergy=%.2f, penalty=%.2f, final=%.4f",
+        first_person_hit,
+        identity_score,
+        preference_score,
+        plan_score,
+        long_term_score,
+        opinion_score,
+        synergy_score,
+        non_personal_penalty,
+        score,
     )
-
-    if is_user_turn:
-        length = len(text)
-        if not (rule_config.LENGTH_MIN < length < rule_config.LENGTH_MAX):
-            score -= rule_config.LENGTH_SCORE
-            pipeline_logger.info(f"probe_structure_score: length_score_adjustment={-rule_config.LENGTH_SCORE}")
-        else:
-            pipeline_logger.info("probe_structure_score: length_score_adjustment=0.0")
-
-    return min(score, 1.0)
+    return score
 
 
 def detect_information_density(text: str) -> float:
