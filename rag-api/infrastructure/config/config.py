@@ -28,7 +28,9 @@ class Config:
     EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))
     QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
     QDRANT_MEMORY_COLLECTION = os.getenv("QDRANT_MEMORY_COLLECTION", "memories")
+    QDRANT_INSIGHT_COLLECTION = os.getenv("QDRANT_INSIGHT_COLLECTION", "insights")
     MEMORY_TOP_K = int(os.getenv("MEMORY_TOP_K", "8"))
+    INSIGHT_TOP_K = int(os.getenv("INSIGHT_TOP_K", "6"))
     SHORT_TERM_SIZE = int(os.getenv("SHORT_TERM_SIZE", "20"))
     SUMMARY_INTERVAL = int(os.getenv("SUMMARY_INTERVAL", "6"))
 

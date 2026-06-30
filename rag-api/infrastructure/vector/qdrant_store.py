@@ -19,11 +19,13 @@ GLOBAL_SESSION = "__global__"
 class QdrantStore:
     def __init__(self):
         self.client = QdrantClient(url=Config.QDRANT_URL)
-        self._ensure_indexes()
         self.collection = Config.QDRANT_MEMORY_COLLECTION
-        self._ensure_collection()
+        self.insight_collection = Config.QDRANT_INSIGHT_COLLECTION
+        self._ensure_collection(self.collection)
+        self._ensure_collection(self.insight_collection)
+        self._ensure_indexes()
 
-    def _ensure_collection(self):
+    def _ensure_collection(self, collection_name: str):
         import time
         for attempt in range(30):
             try:
@@ -33,9 +35,9 @@ class QdrantStore:
                 if attempt == 29:
                     raise
                 time.sleep(1)
-        if self.collection not in collections:
+        if collection_name not in collections:
             self.client.create_collection(
-                collection_name=self.collection,
+                collection_name=collection_name,
                 vectors_config=VectorParams(
                     size=Config.EMBEDDING_DIM,
                     distance=Distance.COSINE,
@@ -269,9 +271,126 @@ class QdrantStore:
             GLOBAL_SESSION, "system", summary, embedding, point_type="summary"
         )
 
+    def upsert_insight(
+        self,
+        user_id: str,
+        category: str,
+        content: str,
+        embedding: list[float],
+        confidence: float = 0.5,
+        evidence_refs: list[str] | None = None,
+        status: str = "active",
+        version: int = 1,
+    ) -> str:
+        """写入一条 Insight 记录。"""
+        point_id = str(uuid.uuid4())
+        self.client.upsert(
+            collection_name=self.insight_collection,
+            points=[
+                PointStruct(
+                    id=point_id,
+                    vector=embedding,
+                    payload={
+                        "type": "insight",
+                        "user_id": user_id,
+                        "category": category,
+                        "content": content,
+                        "confidence": max(0.0, min(1.0, confidence)),
+                        "evidence_refs": evidence_refs or [],
+                        "status": status,
+                        "version": version,
+                        "timestamp": time.time(),
+                    },
+                )
+            ],
+        )
+        return point_id
+
+    def search_insights(
+        self,
+        embedding: list[float],
+        user_id: str,
+        top_k: int | None = None,
+        categories: list[str] | None = None,
+        only_active: bool = True,
+    ) -> list[dict]:
+        """向量检索 Insight，返回置信度与相似度。"""
+        from qdrant_client.models import MatchAny
+
+        conditions = [
+            FieldCondition(key="type", match=MatchValue(value="insight")),
+            FieldCondition(key="user_id", match=MatchValue(value=user_id)),
+        ]
+        if categories:
+            conditions.append(FieldCondition(key="category", match=MatchAny(any=categories)))
+        if only_active:
+            conditions.append(FieldCondition(key="status", match=MatchValue(value="active")))
+
+        results = self.client.query_points(
+            collection_name=self.insight_collection,
+            query=embedding,
+            query_filter=Filter(must=conditions),
+            limit=top_k or Config.INSIGHT_TOP_K,
+        )
+        return [
+            {
+                "insight_id": str(p.id),
+                "content": p.payload.get("content", ""),
+                "category": p.payload.get("category", "general"),
+                "confidence": p.payload.get("confidence", 0.0),
+                "status": p.payload.get("status", "active"),
+                "version": p.payload.get("version", 1),
+                "timestamp": p.payload.get("timestamp", 0),
+                "evidence_refs": p.payload.get("evidence_refs", []),
+                "score": p.score,
+            }
+            for p in results.points
+        ]
+
+    def get_recent_insights(
+        self,
+        user_id: str,
+        limit: int = 20,
+        categories: list[str] | None = None,
+        only_active: bool = True,
+    ) -> list[dict]:
+        """按时间降序获取最近 Insight。"""
+        from qdrant_client.models import MatchAny
+
+        conditions = [
+            FieldCondition(key="type", match=MatchValue(value="insight")),
+            FieldCondition(key="user_id", match=MatchValue(value=user_id)),
+        ]
+        if categories:
+            conditions.append(FieldCondition(key="category", match=MatchAny(any=categories)))
+        if only_active:
+            conditions.append(FieldCondition(key="status", match=MatchValue(value="active")))
+
+        points, _ = self.client.scroll(
+            collection_name=self.insight_collection,
+            scroll_filter=Filter(must=conditions),
+            limit=limit,
+            with_payload=True,
+            order_by={"key": "timestamp", "direction": "desc"},
+        )
+        return [
+            {
+                "insight_id": str(p.id),
+                "content": p.payload.get("content", ""),
+                "category": p.payload.get("category", "general"),
+                "confidence": p.payload.get("confidence", 0.0),
+                "status": p.payload.get("status", "active"),
+                "version": p.payload.get("version", 1),
+                "timestamp": p.payload.get("timestamp", 0),
+                "evidence_refs": p.payload.get("evidence_refs", []),
+            }
+            for p in points
+        ]
+
     def _ensure_indexes(self):
+        from qdrant_client import models
+
         try:
-            from qdrant_client import models
             self.client.create_payload_index(
                 collection_name=Config.QDRANT_MEMORY_COLLECTION,
                 field_name='timestamp',
@@ -279,3 +398,16 @@ class QdrantStore:
             )
         except Exception:
             pass
+        for collection_name in (self.collection, self.insight_collection):
+            for field_name in ("timestamp", "user_id", "category", "status"):
+                try:
+                    field_schema = models.PayloadSchemaType.KEYWORD
+                    if field_name == "timestamp":
+                        field_schema = models.PayloadSchemaType.INTEGER
+                    self.client.create_payload_index(
+                        collection_name=collection_name,
+                        field_name=field_name,
+                        field_schema=field_schema,
+                    )
+                except Exception:
+                    pass
