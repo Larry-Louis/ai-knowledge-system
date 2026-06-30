@@ -353,7 +353,7 @@ _worker() 守护线程
        |
        |- [S1-4-Rule] 综合得分评估
        |    |- probe_structure_score  声明: rule_evaluator.py:4  → 调用: memory_pipeline_service.py:135
-       |    |- detect_polarity_score  声明: rule_evaluator.py:23 → 调用: memory_pipeline_service.py:136
+       |    |- detect_information_density  声明: rule_evaluator.py:23 → 调用: memory_pipeline_service.py:136
        |    |- match_domain_pattern   声明: rule_evaluator.py:36 → 调用: memory_pipeline_service.py:136
        |
        |- [S1-4b] slm_validate(对话文本)
@@ -473,7 +473,7 @@ turn_text = f"用户: {turn_data.get('user','')}\nAI助手: {turn_data.get('assi
 | 函数 | 声明位置 | 调用位置 |
 |------|---------|---------|
 | `probe_structure_score()` | `rag-api/domain/memory/rule_evaluator.py:4` | `rag-api/application/memory_pipeline_service.py:135` |
-| `detect_polarity_score()` | `rag-api/domain/memory/rule_evaluator.py:23` | `rag-api/application/memory_pipeline_service.py:136` |
+| `detect_information_density()` | `rag-api/domain/memory/rule_evaluator.py:23` | `rag-api/application/memory_pipeline_service.py:136` |
 | `match_domain_pattern()` | `rag-api/domain/memory/rule_evaluator.py:36` | `rag-api/application/memory_pipeline_service.py:136` |
 
 - **结构探测**: 检测 `INSTRUCTION_KEYWORDS` (修改/创建...)，检测 ` ``` ` 代码块，计算字符串长度。
@@ -680,7 +680,7 @@ turn_text = f"用户: {turn_data.get('user','')}\nAI助手: {turn_data.get('assi
 | S1-4 | 核心编排 `_process_turn()` | `application/memory_pipeline_service.py:118` | `application/memory_pipeline_service.py:92` |
 | S1-4a | 拼接对话文本（内联） | — | `application/memory_pipeline_service.py:131` |
 | S1-4-Rule | 结构探测 `probe_structure_score()` | `domain/memory/rule_evaluator.py:4` | `application/memory_pipeline_service.py:135` |
-| S1-4-Rule | 极性得分 `detect_polarity_score()` | `domain/memory/rule_evaluator.py:23` | `application/memory_pipeline_service.py:136` |
+| S1-4-Rule | 极性得分 `detect_information_density()` | `domain/memory/rule_evaluator.py:23` | `application/memory_pipeline_service.py:136` |
 | S1-4-Rule | 领域匹配 `match_domain_pattern()` | `domain/memory/rule_evaluator.py:36` | `application/memory_pipeline_service.py:136` |
 | S1-4b | SLM 验证 `slm_validate()` | `domain/memory/text_utils.py:95` | `application/memory_pipeline_service.py:146` |
 | S1-4b | SLM 提示构建 `get_memory_validation_prompt()` | `prompts/prompt_factory.py:83` | `domain/memory/text_utils.py:107` (slm_validate 内部) |
@@ -725,7 +725,7 @@ turn_text = f"用户: {turn_data.get('user','')}\nAI助手: {turn_data.get('assi
 | `rag-api/infrastructure/runtime/state.py` | 运行时状态（活跃角色、核心写模式、活跃文档） | — |
 | `rag-api/domain/memory/decision_maker.py` | SLM 结果决策矩阵 | `DecisionMaker.classify_mu()` (17) |
 | `rag-api/domain/memory/text_utils.py` | 文本处理工具集 | `normalize()` (12), `detect_polarity()` (38), `is_duplicate()` (60), `extract_mus()` (80), `_safe_parse_json()` (84), `slm_validate()` (95) |
-| `rag-api/domain/memory/rule_evaluator.py` | 规则评估器（S1-4-Rule） | `probe_structure_score()` (4), `detect_polarity_score()` (23), `match_domain_pattern()` (36) |
+| `rag-api/domain/memory/rule_evaluator.py` | 规则评估器（S1-4-Rule） | `probe_structure_score()` (4), `detect_information_density()` (23), `match_domain_pattern()` (36) |
 | `rag-api/infrastructure/embedding/embedding.py` | 向量化服务（Ollama nomic-embed-text） | `EmbeddingService.embed()` (7) |
 | `rag-api/infrastructure/vector/qdrant_store.py` | Qdrant 数据访问层 | `upsert_memory()` (45), `search_memories()` (83), `search_global_memories()` (118), `get_recent_global_memories()` (153), `search_documents()` (200), `get_summary()` (233), `save_summary()` (252) |
 | `rag-api/infrastructure/session/session_store.py` | 内存会话存储 | — |
