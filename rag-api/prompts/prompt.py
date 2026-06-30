@@ -1,0 +1,60 @@
+from infrastructure.config.config import Config
+
+DEFAULT_SYSTEM_PROMPT = Config.SYSTEM_PROMPT
+
+
+def build_prompt(
+    request_messages: list[dict],
+    overall_summary: str | None = None,
+    related_memories: list[dict] | None = None,
+    document_chunks: list[dict] | None = None,
+) -> list[dict]:
+    """
+    [S0-8] 构建 RAG 提示
+
+    主要工作流：
+    1. 从请求消息中提取系统提示（如果有），否则使用默认系统提示
+    2. 调用 _build_system_content 将世界观摘要、相关记忆、文档片段附加到系统提示中
+    3. 将其他用户/助手消息按原样添加到最终消息列表中
+    4. 返回完整的消息列表供 LLM 调用
+    """
+    system_msg = None
+    other_messages = []
+    for m in request_messages:
+        if m["role"] == "system" and system_msg is None:
+            system_msg = m["content"]
+        else:
+            other_messages.append(m)
+
+    system_content = system_msg or DEFAULT_SYSTEM_PROMPT
+
+    final_messages = [
+        {"role": "system", "content": _build_system_content(system_content, overall_summary, related_memories, document_chunks)}
+    ]
+
+    final_messages.extend(other_messages)
+    return final_messages
+
+
+def _build_system_content(base: str, overall_summary: str | None, related_memories: list[dict] | None, document_chunks: list[dict] | None = None) -> str:
+    parts = [base]
+
+    if overall_summary:
+        parts.append(f"\n\n[当前世界观摘要]\n{overall_summary}")
+
+    if related_memories:
+        memory_lines = []
+        for m in related_memories:
+            label = "用户" if m["role"] == "user" else "AI助手"
+            memory_lines.append(f"[{label}]: {m['content'][:500]}")
+        parts.append("\n\n[相关历史记忆]\n" + "\n".join(memory_lines))
+
+    # 只包含相似度足够高的文档片段（score ≥ 0.65）
+    relevant_docs = [d for d in (document_chunks or []) if d.get("score", 0) >= 0.65]
+    if relevant_docs:
+        doc_lines = []
+        for d in relevant_docs:
+            doc_lines.append(f"[来自《{d['doc_title']}》第{d['chapter']}章 {d['title']}]: {d['content'][:800]}")
+        parts.append("\n\n[文档参考]\n" + "\n".join(doc_lines))
+
+    return "\n".join(parts)

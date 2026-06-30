@@ -1,4 +1,4 @@
-from services.qdrant_store import QdrantStore
+from infrastructure.vector.qdrant_store import QdrantStore
 q = QdrantStore()
 info = q.client.get_collection(q.collection)
 print("Total points:", info.points_count)
