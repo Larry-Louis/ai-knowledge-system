@@ -180,6 +180,11 @@ class QueryRequest(BaseModel):
     question: str
 
 
+class InsightRebuildRequest(BaseModel):
+    session_id: str
+    limit: int = 40
+
+
 @router.post('/query')
 def query(req: QueryRequest):
     try:
@@ -188,5 +193,37 @@ def query(req: QueryRequest):
             session_id=None,
         )
         return {'answer': result['response'], 'session_id': result['session_id']}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get('/insights/profile')
+def get_insight_profile(session_id: str, limit: int = 20):
+    try:
+        return memory_manager.insight_service.build_user_profile_snapshot(session_id, limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get('/insights/recent')
+def get_recent_insights(session_id: str, limit: int = 20):
+    try:
+        return {
+            'session_id': session_id,
+            'items': memory_manager.insight_service.store.get_recent_insights(
+                user_id=session_id,
+                limit=limit,
+                only_active=True,
+            ),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post('/insights/rebuild')
+def rebuild_insights(req: InsightRebuildRequest):
+    try:
+        report = memory_manager.insight_builder.build_from_session(req.session_id, limit=req.limit)
+        return report
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
