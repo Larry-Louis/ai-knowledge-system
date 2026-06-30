@@ -1,0 +1,3 @@
+{"session_id":"demo-session-1","turn_id":"demo-1","user":"我最近一直在研究Adaptive AUTOSAR，准备把公司的通信模块迁移到ARA::COM。","assistant":"好的，我会记住你在做这个迁移。","layer":"general"}
+{"session_id":"demo-session-2","turn_id":"demo-2","user":"我喜欢用Rust和Python做系统工具开发。","assistant":"明白，你偏好 Rust 和 Python。","layer":"general"}
+{"session_id":"demo-session-3","turn_id":"demo-3","user":"我目前负责一个AI知识库项目，目标是降低Prompt Token。","assistant":"收到，你正在推进 AI 知识库项目。","layer":"general"}

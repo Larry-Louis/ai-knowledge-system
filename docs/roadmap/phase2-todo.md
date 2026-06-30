@@ -120,6 +120,8 @@ Out of Scope（本阶段不做）：
 - 当前样例跑通结果（5 条原始记忆）：
   - 生成 3 条 Insight，压缩比 0.6
   - 冲突探针可触发版本递增与状态更新
+- 已新增回放样例：`rag-api/evals/phase2_replay.sample.jsonl`
+- 脚本支持 `--input-file`，可切换为真实回放集模式。
 
 验收：
 - 脚本可直接输出 JSON 报告。

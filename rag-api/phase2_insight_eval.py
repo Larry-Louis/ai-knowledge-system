@@ -7,6 +7,7 @@ import sys
 import time
 import types
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 
@@ -80,6 +81,41 @@ SAMPLES = [
     {"role": "user", "content": "我打算下一步把Qdrant引入到检索链路里。"},
     {"role": "user", "content": "我经常整理对话纪要，并且会保留版本历史。"},
 ]
+
+
+def load_replay_records(input_file: str | None) -> list[dict[str, Any]]:
+    if not input_file:
+        return []
+
+    path = Path(input_file)
+    if not path.exists():
+        raise FileNotFoundError(f"replay file not found: {path}")
+
+    records: list[dict[str, Any]] = []
+    if path.suffix.lower() == ".jsonl":
+        for line_no, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"invalid jsonl at line {line_no}: {exc}") from exc
+            if isinstance(record, dict):
+                records.append(record)
+        return records
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(payload, dict) and isinstance(payload.get("turns"), list):
+        for item in payload["turns"]:
+            if isinstance(item, dict):
+                records.append(item)
+        return records
+
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+
+    raise ValueError("unsupported replay file format")
 
 
 class FakeLLM:
@@ -246,6 +282,38 @@ def build_sample_session(session_id: str) -> dict[str, list[dict[str, Any]]]:
     }
 
 
+def build_sessions_from_records(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    sessions: dict[str, list[dict[str, Any]]] = {}
+    for index, record in enumerate(records, start=1):
+        session_id = str(record.get("session_id") or f"replay-{index}")
+        messages = record.get("messages")
+        if isinstance(messages, list) and messages:
+            normalized = [m for m in messages if isinstance(m, dict) and m.get("content")]
+        else:
+            user_msg = record.get("user") or record.get("question") or record.get("content")
+            assistant_msg = record.get("assistant") or record.get("answer") or record.get("response") or ""
+            normalized = []
+            if user_msg:
+                normalized.append({"role": "user", "content": str(user_msg)})
+            if assistant_msg:
+                normalized.append({"role": "assistant", "content": str(assistant_msg)})
+        if not normalized:
+            continue
+
+        sessions.setdefault(session_id, [])
+        for message_index, message in enumerate(normalized, start=1):
+            sessions[session_id].append(
+                {
+                    "id": record.get("turn_id") or f"{session_id}-{index}-{message_index}",
+                    "content": message.get("content", ""),
+                    "role": message.get("role", "user"),
+                    "type": record.get("type", "memory"),
+                    "layer": record.get("layer", "general"),
+                }
+            )
+    return sessions
+
+
 def run_builder_report(session_id: str) -> dict[str, Any]:
     store = FakeInsightStore(build_sample_session(session_id))
 
@@ -282,6 +350,53 @@ def run_builder_report(session_id: str) -> dict[str, Any]:
             for item in store.insights
         ],
         "profile": profile,
+    }
+
+
+def run_multi_session_report(session_sessions: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    reports = []
+    total_sources = 0
+    total_created = 0
+    category_counter: Counter[str] = Counter()
+
+    for session_id in sorted(session_sessions.keys()):
+        store = FakeInsightStore({session_id: session_sessions[session_id]})
+
+        import application.insight_builder as insight_builder_module
+        import application.insight_service as insight_service_module
+
+        insight_builder_module.get_llm = lambda role=None: FakeLLM()
+        insight_builder_module.EmbeddingService = _PatchedEmbeddingService
+        insight_service_module.EmbeddingService = _PatchedEmbeddingService
+
+        service = InsightService(store)
+        builder = InsightBuilder(store, service)
+        report = builder.build_from_session(session_id)
+        profile = service.build_user_profile_snapshot(session_id)
+
+        reports.append(
+            {
+                "session_id": session_id,
+                "sources": report["sources"],
+                "created": report["created"],
+                "compression_ratio": round(report["created"] / max(1, report["sources"]), 4),
+                "categories": report["categories"],
+                "profile_total": profile["total_insights"],
+            }
+        )
+        total_sources += report["sources"]
+        total_created += report["created"]
+        category_counter.update(item["category"] for item in store.insights)
+
+    return {
+        "sessions": reports,
+        "totals": {
+            "sessions": len(reports),
+            "sources": total_sources,
+            "created": total_created,
+            "compression_ratio": round(total_created / max(1, total_sources), 4),
+            "category_counts": dict(category_counter),
+        },
     }
 
 
@@ -330,9 +445,16 @@ def run_conflict_probe() -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Phase 2 Insight offline evaluation")
     parser.add_argument("--session-id", default="phase2-eval", help="Session id for the sample run")
+    parser.add_argument("--input-file", default="", help="Optional JSON/JSONL replay file")
     args = parser.parse_args()
 
-    builder_report = run_builder_report(args.session_id)
+    replay_records = load_replay_records(args.input_file) if args.input_file else []
+    if replay_records:
+        session_sessions = build_sessions_from_records(replay_records)
+        builder_report = run_multi_session_report(session_sessions)
+    else:
+        builder_report = run_builder_report(args.session_id)
+
     conflict_report = run_conflict_probe()
 
     output = {
@@ -342,6 +464,7 @@ def main() -> None:
             "compression_target": "100 条碎片 -> 5~15 条洞察",
             "status": "active/conflicted",
             "versioning": "递增并保留历史状态",
+            "replay_mode": "支持 JSONL/JSON 回放集",
         },
     }
     print(json.dumps(output, ensure_ascii=False, indent=2))
