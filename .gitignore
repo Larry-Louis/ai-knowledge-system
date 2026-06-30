@@ -7,3 +7,12 @@ venv/
 .venv/
 .reasonix/
 **/test_*.txt
+*.db
+*.db-shm
+*.db-wal
+.obsidian/
+.vscode/
+*.log*
+.deepseek/
+*.json
+ 
