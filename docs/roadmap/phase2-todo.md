@@ -18,6 +18,7 @@ Phase 2 目标：从“存储信息”升级为“提炼用户画像”。
 - Insight Builder 最小闭环已落地，可从会话记忆生成洞察。
 - 用户画像快照已可注入 Prompt，上下文开始使用 Insight 优先信息。
 - 冲突检测与版本化最小闭环已落地：支持重复洞察合并、旧洞察 conflicted 标记、新版本递增。
+- 洞察历史查看与导出能力已落地：支持按会话查看历史版本、导出 JSON、导出 JSONL。
 
 ---
 
@@ -127,26 +128,51 @@ Out of Scope（本阶段不做）：
 - 脚本可直接输出 JSON 报告。
 - 后续可把样本集从固定示例扩展为真实回放集。
 
+### 3.7 洞察历史审查与导出（P1）
+
+- 已补充接口：
+  - `GET /insights/history`
+  - `GET /insights/export`
+  - `GET /insights/export.jsonl`
+- 当前用途：
+  - 人工审查 `active/conflicted/deprecated` 版本演进
+  - 导出为 JSON/JSONL 后做离线分析、抽检和回归留档
+
+验收：
+- 可按会话查看历史状态分布与版本链。
+- 可直接导出扁平化结果，无需二次转换格式。
+
+### 3.8 当前验证命令（P1）
+
+- 内置样例评估：
+  - `python phase2_insight_eval.py`
+- 回放样例评估：
+  - `python phase2_insight_eval.py --input-file evals/phase2_replay.sample.jsonl`
+- 导出接口验证：
+  - `GET /insights/export?session_id=...`
+  - `GET /insights/export.jsonl?session_id=...`
+
 ---
 
 ## 四、里程碑计划（建议 4 周）
 
 ### Week 1：模型与存储
-- 完成 Insight schema 与存储接口。
-- 完成最小读写 API。
+- 已完成：Insight schema 与存储接口。
+- 已完成：最小读写 API。
 
 ### Week 2：Builder 主链路
-- 打通提取/聚合/归一/去重/写入。
-- 完成基础单元测试与样例回放。
+- 已完成：提取/聚合/归一/去重/写入最小闭环。
+- 已完成：样例回放与离线评估脚本基线。
+- 未完成：真实回放集规模化评估与更系统的自动化测试。
 
 ### Week 3：冲突与上下文接入
-- 完成冲突检测与版本化。
-- Context Builder 接入 Insight 优先策略。
+- 已完成：冲突检测与版本化最小闭环。
+- 已完成：Prompt 已接入用户画像快照。
+- 未完成：更强仲裁逻辑、raw memory fallback 策略、注入/裁剪日志。
 
 ### Week 4：评估与灰度
-- 跑离线评估与回归。
-- 小流量灰度并输出周报。
-- 达标后准备全量。
+- 已完成：离线评估脚本、回放样例、历史导出接口。
+- 未完成：真实数据回放评估、小流量灰度、周报与达标验收。
 
 ---
 
@@ -177,9 +203,9 @@ Out of Scope（本阶段不做）：
 
 | 优先级 | 项目 |
 |--------|------|
-| 🔴 P0 | Insight 数据模型与存储 |
-| 🔴 P0 | Insight Builder 最小闭环 |
-| 🔴 P0 | 冲突检测与版本化 |
-| 🟡 P1 | Context Builder 接入 Insight 优先 |
-| 🟡 P1 | 评估体系与灰度发布 |
+| 🔴 P0 | 真实回放集评估与完成定义验证 |
+| 🔴 P0 | Context Builder 完整 Insight 优先策略（含 fallback / 注入日志 / 裁剪日志） |
+| 🔴 P0 | 冲突仲裁增强（时间权重 / 证据权重 / 回滚能力） |
+| 🟡 P1 | 小流量灰度与周报留档 |
+| 🟡 P1 | 导出结果抽检与人工审查流程 |
 | 🟢 P2 | Insight 质量自动化监控与调参面板 |
