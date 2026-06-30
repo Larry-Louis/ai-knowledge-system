@@ -117,6 +117,43 @@ class QdrantStore:
             for p in results.points
         ]
 
+    def get_recent_session_memories(
+        self,
+        session_id: str,
+        limit: int = 40,
+        types: list[str] | None = None,
+        layers: list[str] | None = None,
+    ) -> list[dict]:
+        """按时间降序获取指定会话的最近记忆，用于 Insight Builder。"""
+        conditions = [FieldCondition(key="session_id", match=MatchValue(value=session_id))]
+        if types:
+            from qdrant_client.models import MatchAny
+            conditions.append(FieldCondition(key="type", match=MatchAny(any=types)))
+        if layers:
+            from qdrant_client.models import MatchAny
+            conditions.append(FieldCondition(key="layer", match=MatchAny(any=layers)))
+
+        points, _ = self.client.scroll(
+            collection_name=self.collection,
+            scroll_filter=Filter(must=conditions),
+            limit=limit,
+            with_payload=True,
+            order_by={"key": "timestamp", "direction": "desc"},
+        )
+        return [
+            {
+                "id": str(p.id),
+                "content": p.payload.get("content", ""),
+                "role": p.payload.get("role", "user"),
+                "session_id": p.payload.get("session_id", session_id),
+                "layer": p.payload.get("layer", ""),
+                "type": p.payload.get("type", "memory"),
+                "timestamp": p.payload.get("timestamp", 0),
+                "payload": p.payload,
+            }
+            for p in points
+        ]
+
     def search_global_memories(
         self, embedding: list[float], top_k: int = 6, layers: list[str] | None = None
     ) -> list[dict]:

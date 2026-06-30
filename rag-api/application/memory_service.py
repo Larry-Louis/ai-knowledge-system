@@ -28,6 +28,8 @@ def _is_auto_task(content: str, source: str = "user") -> bool:
             pass
     return False
 from application.prompt_builder import build_prompt
+from application.insight_service import InsightService
+from application.insight_builder import InsightBuilder
 from infrastructure.embedding.embedding import EmbeddingService
 from infrastructure.vector.qdrant_store import QdrantStore
 from infrastructure.session.session_store import SessionStore
@@ -52,6 +54,8 @@ class MemoryManager:
     def __init__(self):
         self.qdrant = QdrantStore()
         self.sessions = SessionStore()
+        self.insight_service = InsightService(self.qdrant)
+        self.insight_builder = InsightBuilder(self.qdrant, self.insight_service)
         self._model_override = None
         self._last_session_id = None
         self.last_prompt = None
@@ -126,6 +130,7 @@ class MemoryManager:
         all_memories = _merge_memories(related, global_memories + recent_global)
         summary = self.qdrant.get_summary()
         # [S0-5] 记忆合并去重，[S0-6] 摘要检索 + 文档检索 (get_summary 在前)
+        user_profile = self.insight_service.build_user_profile_snapshot(session_id)
 
         # Search ONLY actively mounted documents for relevant context
         # Core write mode: check if user message contains a save trigger
@@ -153,10 +158,12 @@ class MemoryManager:
            overall_summary=summary,
            related_memories=all_memories,
            document_chunks=doc_chunks,
+              user_profile=user_profile,
        )
         self.last_prompt = {
            "session_id": session_id,
            "debug_info": {"related": len(all_memories), "summary": bool(summary), "docs": len(doc_chunks)},
+              "user_profile": user_profile,
             "layer_stats": {m.get('layer', 'unknown'): sum(1 for x in all_memories if x.get('layer') == m.get('layer', 'unknown')) for m in all_memories},
             "model": model or Config.DEEPSEEK_MODEL,
             "timestamp": int(time.time()),
@@ -246,6 +253,8 @@ class MemoryManager:
             pipeline_logger.info(f"Summary generated: {summary}")
             embedding = EmbeddingService.embed(summary)
             self.qdrant.save_summary(summary, embedding)
+            insight_report = self.insight_builder.build_from_session(session_id)
+            pipeline_logger.info(f"Insight build completed: {insight_report}")
         except Exception as e:
             pipeline_logger.error(f"[ERROR] Summary generation failed: {e}")
             print(f"[WARN] Summary generation failed: {e}")
