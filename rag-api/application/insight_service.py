@@ -261,5 +261,34 @@ class InsightService:
             "categories": grouped,
         }
 
+    def export_insight_history(
+        self,
+        user_id: str,
+        limit: int = 200,
+        categories: list[str] | None = None,
+        only_active: bool = False,
+    ) -> list[dict[str, Any]]:
+        """返回扁平化洞察历史，适合导出为 JSON 或 JSONL。"""
+        items = self.store.get_recent_insights(
+            user_id=user_id,
+            limit=limit,
+            categories=categories,
+            only_active=only_active,
+        )
+        return [
+            {
+                "user_id": user_id,
+                "insight_id": item.get("insight_id", ""),
+                "category": item.get("category", "general"),
+                "content": item.get("content", ""),
+                "confidence": item.get("confidence", 0.0),
+                "status": item.get("status", "active"),
+                "version": item.get("version", 1),
+                "timestamp": item.get("timestamp", 0),
+                "evidence_refs": item.get("evidence_refs", []),
+            }
+            for item in items
+        ]
+
 
 __all__ = ["InsightService", "InsightRecord"]

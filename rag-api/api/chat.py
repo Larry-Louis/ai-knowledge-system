@@ -5,7 +5,7 @@ import json
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from infrastructure.config.config import Config
 from application.memory_service import MemoryManager
@@ -228,6 +228,38 @@ def get_insight_history(session_id: str, limit: int = 50, only_active: bool = Fa
             limit=limit,
             only_active=only_active,
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get('/insights/export')
+def export_insights_json(session_id: str, limit: int = 200, only_active: bool = False):
+    try:
+        items = memory_manager.insight_service.export_insight_history(
+            user_id=session_id,
+            limit=limit,
+            only_active=only_active,
+        )
+        return {
+            'session_id': session_id,
+            'total_items': len(items),
+            'only_active': only_active,
+            'items': items,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get('/insights/export.jsonl')
+def export_insights_jsonl(session_id: str, limit: int = 200, only_active: bool = False):
+    try:
+        items = memory_manager.insight_service.export_insight_history(
+            user_id=session_id,
+            limit=limit,
+            only_active=only_active,
+        )
+        body = "\n".join(json.dumps(item, ensure_ascii=False) for item in items)
+        return PlainTextResponse(content=body, media_type='application/x-ndjson')
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
