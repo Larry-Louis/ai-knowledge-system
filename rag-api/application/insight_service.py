@@ -220,5 +220,46 @@ class InsightService:
             },
         }
 
+    def list_insight_history(
+        self,
+        user_id: str,
+        limit: int = 50,
+        categories: list[str] | None = None,
+        only_active: bool = False,
+    ) -> dict[str, Any]:
+        """返回洞察历史，默认包含 active/conflicted/deprecated 全部状态。"""
+        items = self.store.get_recent_insights(
+            user_id=user_id,
+            limit=limit,
+            categories=categories,
+            only_active=only_active,
+        )
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for item in items:
+            grouped.setdefault(item.get("category", "general"), []).append(
+                {
+                    "insight_id": item.get("insight_id", ""),
+                    "content": item.get("content", ""),
+                    "confidence": item.get("confidence", 0.0),
+                    "status": item.get("status", "active"),
+                    "version": item.get("version", 1),
+                    "timestamp": item.get("timestamp", 0),
+                    "evidence_refs": item.get("evidence_refs", []),
+                }
+            )
+
+        status_counts: dict[str, int] = {}
+        for item in items:
+            status = item.get("status", "active")
+            status_counts[status] = status_counts.get(status, 0) + 1
+
+        return {
+            "user_id": user_id,
+            "total_items": len(items),
+            "only_active": only_active,
+            "status_counts": status_counts,
+            "categories": grouped,
+        }
+
 
 __all__ = ["InsightService", "InsightRecord"]

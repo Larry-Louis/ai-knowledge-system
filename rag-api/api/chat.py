@@ -220,6 +220,18 @@ def get_recent_insights(session_id: str, limit: int = 20):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get('/insights/history')
+def get_insight_history(session_id: str, limit: int = 50, only_active: bool = False):
+    try:
+        return memory_manager.insight_service.list_insight_history(
+            user_id=session_id,
+            limit=limit,
+            only_active=only_active,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post('/insights/rebuild')
 def rebuild_insights(req: InsightRebuildRequest):
     try:
