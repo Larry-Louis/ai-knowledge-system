@@ -1,4 +1,3 @@
-import re
 from domain.memory import rule_config
 from infrastructure.logging.logger import pipeline_logger
 from infrastructure.embedding.embedding import EmbeddingService
@@ -76,6 +75,7 @@ def _top_k_average(vec: list[float], anchor_vectors: list[list[float]], k: int) 
 
 # ---- 缓存：扁平 Memory Prototype 向量（保留向后兼容） ----
 _anchor_vectors: list[list[float]] | None = None
+
 
 def _get_anchor_vectors() -> list[list[float]]:
     global _anchor_vectors
@@ -236,15 +236,9 @@ def calculate_rule_score(text: str, turn_text: str = "", is_user_turn: bool = Tr
     """综合评分入口，返回 (score, sem_direction)"""
     if turn_text is None:
         turn_text = text
-
     pss = probe_structure_score(text, is_user_turn)
     dps = detect_polarity_score(turn_text)
-    mdp, mdp_sem_group = match_domain_pattern(text)
-
+    mdp = match_domain_pattern(turn_text)
     score = pss + dps + mdp
-    pipeline_logger.info(
-        f"calculate_rule_score: sem_direction={mdp_sem_group}, "
-        f"probe_structure={pss:.4f}, detect_polarity={dps:.4f}, "
-        f"match_domain={mdp:.4f}, total={score:.4f}"
-    )
-    return max(0.0, min(1.0, score)), mdp_sem_group
+    pipeline_logger.debug(f"calculate_rule_score: probe_structure={pss}, detect_polarity={dps}, match_domain={mdp}, total={score}")
+    return max(0.0, min(1.0, score))

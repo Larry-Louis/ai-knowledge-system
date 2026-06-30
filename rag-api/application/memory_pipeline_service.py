@@ -133,7 +133,7 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
     # [S1-4-Rule] 综合得分评估：保安系统入口，在SLM评估前进行轻量级过滤。
     score, sem_direction = calculate_rule_score(user_input, turn_text, is_user_turn=True)
     pipeline_logger.info(f"Rule score: {score:.2f}, semantic direction: {sem_direction}")
-
+   
     # 拦截策略: 如果非常确定是垃圾(<0.1)则跳过
     if score < 0.1:
         pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} dropped. Score: {score:.2f}")
