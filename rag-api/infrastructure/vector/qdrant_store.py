@@ -318,9 +318,10 @@ class QdrantStore:
         evidence_refs: list[str] | None = None,
         status: str = "active",
         version: int = 1,
+        insight_id: str | None = None,
     ) -> str:
         """写入一条 Insight 记录。"""
-        point_id = str(uuid.uuid4())
+        point_id = insight_id or str(uuid.uuid4())
         self.client.upsert(
             collection_name=self.insight_collection,
             points=[

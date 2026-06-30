@@ -5,6 +5,7 @@ from typing import Any
 
 from infrastructure.embedding.embedding import EmbeddingService
 from infrastructure.vector.qdrant_store import QdrantStore
+from domain.memory.math_utils import cosine_similarity
 
 
 @dataclass
@@ -22,6 +23,9 @@ class InsightRecord:
 class InsightService:
     """Phase2 Week1: Insight 存储与读取最小闭环服务。"""
 
+    DUPLICATE_SIMILARITY_THRESHOLD = 0.88
+    CONFLICT_SIMILARITY_THRESHOLD = 0.62
+
     def __init__(self, store: QdrantStore | None = None):
         self.store = store or QdrantStore()
 
@@ -35,7 +39,67 @@ class InsightService:
         status: str = "active",
         version: int = 1,
     ) -> InsightRecord:
+        return self.resolve_and_create_insight(
+            user_id=user_id,
+            category=category,
+            content=content,
+            confidence=confidence,
+            evidence_refs=evidence_refs,
+            status=status,
+            version=version,
+        )
+
+    def resolve_and_create_insight(
+        self,
+        user_id: str,
+        category: str,
+        content: str,
+        confidence: float = 0.5,
+        evidence_refs: list[str] | None = None,
+        status: str = "active",
+        version: int = 1,
+    ) -> InsightRecord:
         embedding = EmbeddingService.embed(content)
+        existing = self.store.search_insights(
+            embedding=embedding,
+            user_id=user_id,
+            top_k=5,
+            categories=[category],
+            only_active=True,
+        )
+
+        if existing:
+            best = existing[0]
+            best_score = float(best.get("score", 0.0))
+            best_content = best.get("content", "")
+            best_version = int(best.get("version", 1) or 1)
+            merged_refs = list(dict.fromkeys((best.get("evidence_refs", []) or []) + (evidence_refs or [])))
+
+            if best_score >= self.DUPLICATE_SIMILARITY_THRESHOLD:
+                return self._update_existing_insight(
+                    insight_id=best["insight_id"],
+                    user_id=user_id,
+                    category=category,
+                    content=best_content or content,
+                    confidence=max(confidence, float(best.get("confidence", 0.0))),
+                    evidence_refs=merged_refs,
+                    status="active",
+                    version=best_version + 1,
+                )
+
+            if self._has_conflict(content, best_content):
+                self._update_existing_insight(
+                    insight_id=best["insight_id"],
+                    user_id=user_id,
+                    category=category,
+                    content=best_content,
+                    confidence=float(best.get("confidence", 0.0)),
+                    evidence_refs=merged_refs,
+                    status="conflicted",
+                    version=best_version + 1,
+                )
+                version = max(version, best_version + 1)
+
         insight_id = self.store.upsert_insight(
             user_id=user_id,
             category=category,
@@ -56,6 +120,64 @@ class InsightService:
             status=status,
             version=version,
         )
+
+    def _update_existing_insight(
+        self,
+        insight_id: str,
+        user_id: str,
+        category: str,
+        content: str,
+        confidence: float,
+        evidence_refs: list[str],
+        status: str,
+        version: int,
+    ) -> InsightRecord:
+        embedding = EmbeddingService.embed(content)
+        self.store.upsert_insight(
+            insight_id=insight_id,
+            user_id=user_id,
+            category=category,
+            content=content,
+            embedding=embedding,
+            confidence=confidence,
+            evidence_refs=evidence_refs,
+            status=status,
+            version=version,
+        )
+        return InsightRecord(
+            insight_id=insight_id,
+            user_id=user_id,
+            category=category,
+            content=content,
+            confidence=max(0.0, min(1.0, confidence)),
+            evidence_refs=evidence_refs,
+            status=status,
+            version=version,
+        )
+
+    def _has_conflict(self, new_content: str, old_content: str) -> bool:
+        new_lower = (new_content or "").lower()
+        old_lower = (old_content or "").lower()
+        if not new_lower or not old_lower:
+            return False
+
+        pairs = [
+            ("我喜欢", "我不喜欢"),
+            ("喜欢", "不喜欢"),
+            ("准备", "不准备"),
+            ("计划", "不计划"),
+            ("一直", "不再"),
+            ("长期", "短期"),
+            ("支持", "反对"),
+            ("希望", "不希望"),
+        ]
+        for positive, negative in pairs:
+            if (positive in new_lower and negative in old_lower) or (negative in new_lower and positive in old_lower):
+                return True
+
+        # 当新旧洞察彼此向量相似度很低时，视为同类主题的潜在变化，但不强制冲突。
+        similarity = cosine_similarity(EmbeddingService.embed(new_content), EmbeddingService.embed(old_content))
+        return similarity < self.CONFLICT_SIMILARITY_THRESHOLD and any(marker in new_content for marker in ("我", "我们", "我的"))
 
     def search_insights(
         self,
