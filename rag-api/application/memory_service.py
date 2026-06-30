@@ -258,3 +258,18 @@ class MemoryManager:
         except Exception as e:
             pipeline_logger.error(f"[ERROR] Summary generation failed: {e}")
             print(f"[WARN] Summary generation failed: {e}")
+
+    def export_session_replay(self, session_id: str) -> dict:
+        """导出指定会话的消息为 Phase2 评估可用的回放结构。"""
+        messages = self.sessions.get_all(session_id)
+        return {
+            "session_id": session_id,
+            "messages": [
+                {
+                    "role": item.get("role", "user"),
+                    "content": item.get("content", ""),
+                }
+                for item in messages
+                if item.get("content")
+            ],
+        }

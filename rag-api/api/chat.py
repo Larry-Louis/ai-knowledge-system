@@ -23,6 +23,26 @@ def get_last_prompt():
     return JSONResponse(memory_manager.last_prompt)
 
 
+@router.get('/sessions/export')
+def export_session_json(session_id: str):
+    try:
+        replay = memory_manager.export_session_replay(session_id)
+        replay['message_count'] = len(replay.get('messages', []))
+        return replay
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get('/sessions/export.jsonl')
+def export_session_jsonl(session_id: str):
+    try:
+        replay = memory_manager.export_session_replay(session_id)
+        body = json.dumps(replay, ensure_ascii=False)
+        return PlainTextResponse(content=body + "\n", media_type='application/x-ndjson')
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def _build_chat_response(result: dict, request: ChatCompletionRequest) -> dict:
     msg = {
         'role': 'assistant',

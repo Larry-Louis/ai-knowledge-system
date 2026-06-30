@@ -152,6 +152,19 @@ Out of Scope（本阶段不做）：
   - `GET /insights/export?session_id=...`
   - `GET /insights/export.jsonl?session_id=...`
 
+### 3.9 真实会话回放入口（P1）
+
+- 已补充接口：
+  - `GET /sessions/export`
+  - `GET /sessions/export.jsonl`
+- 当前用途：
+  - 将当前系统中的单个 session 直接导出为 Phase2 评估脚本可用的回放结构
+  - 作为真实回放集采样入口，后续可批量汇总为 JSONL 数据集
+
+验收：
+- 导出的 JSON/JSONL 可直接作为 `phase2_insight_eval.py --input-file ...` 的输入来源之一。
+- 无需手工转换字段结构。
+
 ---
 
 ## 四、里程碑计划（建议 4 周）
