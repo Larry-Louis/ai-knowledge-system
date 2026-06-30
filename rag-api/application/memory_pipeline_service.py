@@ -131,7 +131,8 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
     pipeline_logger.debug(f"Processing turn {turn_data.get('turn_id', 'unknown')} with system version: {Config.SYSTEM_VERSION}")
     
     # [S1-4-Rule] 综合得分评估：保安系统入口，在SLM评估前进行轻量级过滤。
-    score = calculate_rule_score(user_input, turn_text, is_user_turn=True)
+    score, sem_direction = calculate_rule_score(user_input, turn_text, is_user_turn=True)
+    pipeline_logger.info(f"Rule score: {score:.2f}, semantic direction: {sem_direction}")
    
     # 拦截策略: 如果非常确定是垃圾(<0.1)则跳过
     if score < 0.1:
@@ -142,7 +143,7 @@ def _process_turn(turn_data: dict, qdrant: QdrantStore):
 
     # [S1-4b] SLM 验证前检查，将检查结果和原始信息记录至日志。
     result = slm_validate(turn_text)
-    pipeline_logger.debug(f"Turn {turn_data.get('turn_id', 'unknown')}: SLM validation result={result}")
+    pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')}: SLM validation result={result}")
     pipeline_logger.info(f"Turn {turn_data.get('turn_id', 'unknown')} SLM validation successful. Keep: {result.get('keep')}")
     pipeline_logger.info(f"Final result: {result.get('keep')}")
 
