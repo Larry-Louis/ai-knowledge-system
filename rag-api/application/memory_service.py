@@ -81,14 +81,14 @@ class MemoryManager:
             - 全局跨会话记忆 (search_global_memories)
             - 新会话时额外获取最近跨会话记忆 (get_recent_global_memories)
         [S0-5] 记忆合并去重：合并当前会话记忆和全局记忆，去重后最多保留 12 条
-        [S0-6] 摘要检索 + 文档检索：获取世界观摘要和活跃文档的相关片段
+        [S0-6] 摘要检索 + 文档检索：获取对话摘要和活跃文档的相关片段
         [S0-7] 核心写入触发（可选）：如果 core_write_mode 启用且消息包含触发词，将后续文本写入核心层
-        [S0-8] 构建 RAG 提示：将系统提示、世界观摘要、相关记忆、文档片段组合成最终提示
+        [S0-8] 构建 RAG 提示：将系统提示、对话摘要、相关记忆、文档片段组合成最终提示
         [S0-9] LLM 调用：根据角色选择模型（story/docreader 使用 deepseek-v4-flash，其他使用默认模型）
         [S0-10] 同步写入 Qdrant：将用户消息和助手回复写入记忆存储
         [S0-11] 同步写入 Qdrant（同上）
         [S0-12] 提交异步管道任务：将本轮对话提交到异步记忆处理管道 (MemoryEvent)
-        [S0-13] 条件性摘要生成：每 SUMMARY_INTERVAL*2 条消息触发一次世界观摘要生成
+        [S0-13] 条件性摘要生成：每 SUMMARY_INTERVAL*2 条消息触发一次对话摘要生成
         """
         self._model_override = model
         if not session_id:
@@ -106,7 +106,7 @@ class MemoryManager:
         embedding = EmbeddingService.embed(last_user_msg)
         active_role = get_active_role()
 
-        # Search layers: "core" always + active role layer
+        # 分层搜索策略: 永远包含 "core" 层 + 活跃角色层
         search_layers = ["core"]
         if active_role != "core":
             search_layers.append(active_role)
@@ -114,11 +114,11 @@ class MemoryManager:
         is_new_session = (session_id != self._last_session_id)
         self._last_session_id = session_id
 
+        # [S0-4] 三重记忆检索
         related = self.qdrant.search_memories(
            embedding, session_id, Config.MEMORY_TOP_K
         )
         global_memories = self.qdrant.search_global_memories(embedding, top_k=6, layers=search_layers)
-        # [S0-4] 三重记忆检索
 
         # 新会话时带 2 条最近跨会话记忆作为预热，同会话时跳过（因为 messages 已有完整历史）
         recent_global = []
@@ -126,10 +126,11 @@ class MemoryManager:
             recent_global = self.qdrant.get_recent_global_memories(
                 exclude_session=session_id, limit=2, layers=search_layers
             )
-
+        # [S0-5] 记忆合并去重
         all_memories = _merge_memories(related, global_memories + recent_global)
+        # [S0-6] 摘要检索 + 文档检索 (get_summary 在前)
         summary = self.qdrant.get_summary()
-        # [S0-5] 记忆合并去重，[S0-6] 摘要检索 + 文档检索 (get_summary 在前)
+        # [P2-1] 记忆检索与上下文预热
         user_profile = self.insight_service.build_user_profile_snapshot(session_id)
 
         # Search ONLY actively mounted documents for relevant context
@@ -153,17 +154,18 @@ class MemoryManager:
         if active_docs:
             doc_chunks = self.qdrant.search_documents(embedding, top_k=4, doc_ids=list(active_docs))
         # [S0-8] 构建 RAG 提示
+        # [P2-3] Prompt 注入：新增 profile snapshot 作为系统提示的一部分
         final_prompt = build_prompt(
-           request_messages=messages,
-           overall_summary=summary,
-           related_memories=all_memories,
-           document_chunks=doc_chunks,
-              user_profile=user_profile,
+            request_messages=messages,
+            overall_summary=summary,
+            related_memories=all_memories,
+            document_chunks=doc_chunks,
+            user_profile=user_profile,
        )
         self.last_prompt = {
-           "session_id": session_id,
-           "debug_info": {"related": len(all_memories), "summary": bool(summary), "docs": len(doc_chunks)},
-              "user_profile": user_profile,
+            "session_id": session_id,
+            "debug_info": {"related": len(all_memories), "summary": bool(summary), "docs": len(doc_chunks)},
+            "user_profile": user_profile,
             "layer_stats": {m.get('layer', 'unknown'): sum(1 for x in all_memories if x.get('layer') == m.get('layer', 'unknown')) for m in all_memories},
             "model": model or Config.DEEPSEEK_MODEL,
             "timestamp": int(time.time()),
@@ -253,6 +255,7 @@ class MemoryManager:
             pipeline_logger.info(f"Summary generated: {summary}")
             embedding = EmbeddingService.embed(summary)
             self.qdrant.save_summary(summary, embedding)
+            # [P2-4] Insight 压缩与写入
             insight_report = self.insight_builder.build_from_session(session_id)
             pipeline_logger.info(f"Insight build completed: {insight_report}")
         except Exception as e:

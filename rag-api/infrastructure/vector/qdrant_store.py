@@ -271,7 +271,7 @@ class QdrantStore:
 
     def get_summary(self) -> str | None:
         """
-        [S0-6] 摘要检索：获取最新的世界观摘要
+        [S0-6] 摘要检索：获取最新的对话摘要
 
         主要工作流：
         1. 在记忆集合中搜索类型为 summary 的点
@@ -290,7 +290,7 @@ class QdrantStore:
 
     def save_summary(self, summary: str, embedding: list[float]):
         """
-        [S0-13] 保存世界观摘要
+        [S0-13] 保存最近对话摘要
 
         主要工作流：
         1. 删除所有旧的摘要记录

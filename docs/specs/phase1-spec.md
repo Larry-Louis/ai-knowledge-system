@@ -173,7 +173,7 @@ POST /v1/chat/completions
 | **调用位置** | `rag-api/application/memory_service.py:126` — 在 `process_request()` 内，记忆合并后调用 |
 
 - 滚动查询 `type=summary` 的最新记录
-- 返回当前世界观摘要文本或 None
+- 返回当前对话摘要文本或 None
 
 **文档检索：**
 
@@ -218,7 +218,7 @@ POST /v1/chat/completions
 
 ```
 [基础系统提示]
-  + [当前世界观摘要]       <- 来自 S0-6
+  + [当前对话摘要]       <- 来自 S0-6
   + [相关历史记忆]         <- 来自 S0-5，最多 12 条
   + [文档参考]            <- 来自 S0-6，score >= 0.65
 ```
@@ -307,7 +307,7 @@ POST /v1/chat/completions
 - 过程：提取近期消息 -> LLM 合成本局摘要 -> 向量化 -> `save_summary()`
 - `save_summary()` 声明：`rag-api/infrastructure/vector/qdrant_store.py:252`
 - `save_summary()` 先删除旧摘要再写入新摘要（只有一个活跃摘要）
-- 下一轮 S0-6 `get_summary()` 读出这个摘要，注入 prompt 的 `[当前世界观摘要]`
+- 下一轮 S0-6 `get_summary()` 读出这个摘要，注入 prompt 的 `[当前对话摘要]`
 
 ---
 
