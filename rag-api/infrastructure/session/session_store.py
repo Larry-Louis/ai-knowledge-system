@@ -35,6 +35,10 @@ class SessionStore:
         """
         return list(self._sessions.get(session_id, []))
 
+    def list_session_ids(self) -> list[str]:
+        """返回当前内存中可用的 session_id 列表。"""
+        return sorted(self._sessions.keys())
+
     def get_message_count(self, session_id: str) -> int:
         """
         [S0-13] 获取指定会话的消息数量

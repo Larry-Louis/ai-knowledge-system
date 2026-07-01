@@ -273,3 +273,13 @@ class MemoryManager:
                 if item.get("content")
             ],
         }
+
+    def export_replay_dataset(self, session_ids: list[str] | None = None) -> list[dict]:
+        """批量导出多个会话的回放结构。未指定 session_ids 时导出当前全部会话。"""
+        selected_ids = session_ids or self.sessions.list_session_ids()
+        dataset: list[dict] = []
+        for session_id in selected_ids:
+            replay = self.export_session_replay(session_id)
+            if replay.get("messages"):
+                dataset.append(replay)
+        return dataset

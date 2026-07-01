@@ -16,6 +16,10 @@ router = APIRouter()
 memory_manager = MemoryManager()
 
 
+class SessionExportRequest(BaseModel):
+    session_ids: list[str] | None = None
+
+
 @router.get('/v1/last-prompt')
 def get_last_prompt():
     if not memory_manager.last_prompt:
@@ -39,6 +43,40 @@ def export_session_jsonl(session_id: str):
         replay = memory_manager.export_session_replay(session_id)
         body = json.dumps(replay, ensure_ascii=False)
         return PlainTextResponse(content=body + "\n", media_type='application/x-ndjson')
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get('/sessions')
+def list_sessions():
+    try:
+        session_ids = memory_manager.sessions.list_session_ids()
+        return {
+            'total_sessions': len(session_ids),
+            'session_ids': session_ids,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post('/sessions/export-dataset')
+def export_session_dataset(req: SessionExportRequest):
+    try:
+        items = memory_manager.export_replay_dataset(req.session_ids)
+        return {
+            'total_sessions': len(items),
+            'items': items,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post('/sessions/export-dataset.jsonl')
+def export_session_dataset_jsonl(req: SessionExportRequest):
+    try:
+        items = memory_manager.export_replay_dataset(req.session_ids)
+        body = "\n".join(json.dumps(item, ensure_ascii=False) for item in items)
+        return PlainTextResponse(content=body + ("\n" if body else ""), media_type='application/x-ndjson')
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

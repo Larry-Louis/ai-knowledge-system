@@ -165,6 +165,21 @@ Out of Scope（本阶段不做）：
 - 导出的 JSON/JSONL 可直接作为 `phase2_insight_eval.py --input-file ...` 的输入来源之一。
 - 无需手工转换字段结构。
 
+### 3.10 多 session 批量回放导出（P1）
+
+- 已补充接口：
+  - `GET /sessions`
+  - `POST /sessions/export-dataset`
+  - `POST /sessions/export-dataset.jsonl`
+- 当前用途：
+  - 枚举当前可用 session
+  - 批量导出多个 session 为真实回放集
+  - 直接生成可供 Phase2 批量评估使用的数据集
+
+验收：
+- 批量导出结果可直接汇总为真实回放评估输入。
+- 单次不再局限于一个 session 的人工导出。
+
 ---
 
 ## 四、里程碑计划（建议 4 周）
