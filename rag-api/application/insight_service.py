@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from application.config.config import ApplicationConfig
 from infrastructure.embedding.embedding import EmbeddingService
 from infrastructure.vector.qdrant_store import QdrantStore
 from domain.memory.math_utils import cosine_similarity
@@ -22,9 +23,6 @@ class InsightRecord:
 
 class InsightService:
     """Phase2 Week1: Insight 存储与读取最小闭环服务。"""
-
-    DUPLICATE_SIMILARITY_THRESHOLD = 0.88
-    CONFLICT_SIMILARITY_THRESHOLD = 0.62
 
     def __init__(self, store: QdrantStore | None = None):
         self.store = store or QdrantStore()
@@ -67,7 +65,7 @@ class InsightService:
             categories=[category],
             only_active=True,
         )
-
+        # [P2-5] Insight 重复与冲突处理
         if existing:
             best = existing[0]
             best_score = float(best.get("score", 0.0))
@@ -75,7 +73,7 @@ class InsightService:
             best_version = int(best.get("version", 1) or 1)
             merged_refs = list(dict.fromkeys((best.get("evidence_refs", []) or []) + (evidence_refs or [])))
 
-            if best_score >= self.DUPLICATE_SIMILARITY_THRESHOLD:
+            if best_score >= ApplicationConfig.INSIGHT_DUPLICATE_SIMILARITY_THRESHOLD:
                 return self._update_existing_insight(
                     insight_id=best["insight_id"],
                     user_id=user_id,
@@ -177,7 +175,9 @@ class InsightService:
 
         # 当新旧洞察彼此向量相似度很低时，视为同类主题的潜在变化，但不强制冲突。
         similarity = cosine_similarity(EmbeddingService.embed(new_content), EmbeddingService.embed(old_content))
-        return similarity < self.CONFLICT_SIMILARITY_THRESHOLD and any(marker in new_content for marker in ("我", "我们", "我的"))
+        return similarity < ApplicationConfig.INSIGHT_CONFLICT_SIMILARITY_THRESHOLD and any(
+            marker in new_content for marker in ("我", "我们", "我的")
+        )
 
     def search_insights(
         self,
